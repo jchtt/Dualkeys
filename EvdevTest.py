@@ -1,6 +1,7 @@
 # vim: sw=4 ts=4 et
 #! /usr/bin/env python
 
+import argparse
 import evdev
 import pyudev as udev
 import errno
@@ -14,7 +15,7 @@ from selectors import DefaultSelector, EVENT_READ, EVENT_WRITE
 # import sys
 # import time
 
-DEBUG = True
+DEBUG = False
 
 class HandleType(Enum):
     """
@@ -108,7 +109,7 @@ def send_key(ui, scancode, keystate):
     ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
     ui.syn()
 
-def handle_event(device, ui, event, registered_keys, event_list, grabbed = True, pre_emptive = False):
+def handle_event(ui, event, registered_keys, event_list, grabbed = True, pre_emptive = False):
     """
     Handle the incoming key event. Main callback function.
     """
@@ -187,11 +188,13 @@ def handle_event(device, ui, event, registered_keys, event_list, grabbed = True,
                                 to_push = node.key
                                 send_key(ui, to_push, 1)
                                 # ui.syn()
-                            print("Pushing key {}".format(to_push))
+                            if DEBUG:
+                                print("Pushing key {}".format(to_push))
                             event_list.remove(node.key)
                             # node = node.next
                         # Finally let the key go up
-                        print("Final key up {}".format(key_event.scancode))
+                        if DEBUG:
+                            print("Final key up {}".format(key_event.scancode))
                         send_key(ui, key_event.scancode, key_event.keystate)
                         # ui.syn()
                 else:
@@ -239,21 +242,10 @@ def handle_event(device, ui, event, registered_keys, event_list, grabbed = True,
                         send_key(ui, to_push_single, 0)
                         # ui.syn()
 
-        # send_key(ui, key_event.scancode, key_event.keystate)
-        # ui.syn()
-        print(event_list)
-            # Button pressed, put on list
-            # key_pressed = keys.key_dict.get(key_event.scancode)
-            # if key_pressed is None:
-            #     if keys.last is None:
-            #         send_key(ui, key_event.scancode, key_event.keystate)
-            #     else:
-            #         if keys.last is keys.regular_key:
-                        
-            #         keys.last.next 
+        # print(event_list)
     return True
 
-def print_event(device, ui, event):
+def print_event(ui, event):
     """
     Alternative callback function that passes everything through,
     for debugging purposes only.
@@ -261,9 +253,9 @@ def print_event(device, ui, event):
 
     if event.type == evdev.ecodes.EV_KEY:
         key_event = evdev.util.categorize(event)
-        # print(key_event.scancode, key_event.keystate)
+        print()
+        print('keycode = {}, scancode = {}, keystate = {}'.format(key_event.keycode, key_event.scancode, key_event.keystate))
         send_key(ui, key_event.scancode, key_event.keystate)
-        ui.syn()
     return True
 
 def cleanup(listen_devices, grab_devices, ui):
@@ -283,9 +275,56 @@ def cleanup(listen_devices, grab_devices, ui):
 
     print("Done.")
 
+def parse_arguments():
+    """
+    Parse command line arguments with argparse.
+    """
+
+    parser = argparse.ArgumentParser(description = "Dualkeys: Add dual roles for keys via evdev and uinput")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-k', '--key', type=int, nargs=3, action='append',
+            help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
+            "actual key on the keyboard, the single press key, and the modifier key"),
+            metavar = ('actual_key', 'single_key', 'mod_key'))
+    group.add_argument('-p', '--print', action='store_true',
+            help = "Disable dual-role keys, just print back scancodes")
+    group.add_argument('-l', '--list', action='store_true',
+            help = 'List all input devices recognized by python-evdev')
+    parser.add_argument('-d', '--debug', action='store_true',
+            help = "Print debug information")
+    args = parser.parse_args('--key 8 8 42 -k 9 9 56'.split())
+    # args = parser.parse_args('-p'.split())
+    # args = parser.parse_args('-h'.split())
+    # args = parser.parse_args('-l'.split())
+    if args.debug:
+        print("Arguments passed: {}".format(args))
+    return args
+
+def print_registered_keys(registered_keys):
+    print("Registered dual-role keys:")
+    for key in registered_keys.values():
+        primary_key = key.primary_key
+        primary_key_code = evdev.ecodes.KEY[primary_key]
+        single_key = key.single_key
+        single_key_code = evdev.ecodes.KEY[single_key]
+        mod_key = key.mod_key
+        mod_key_code = evdev.ecodes.KEY[mod_key]
+        print("actual key = [{} | {}], ".format(primary_key, primary_key_code), end = "")
+        print("single key = [{} | {}], ".format(single_key, single_key_code), end = "")
+        print("modifier key = [{} | {}]".format(mod_key, mod_key_code))
+
+# Main program
 def main():
-    # Main program
+    global DEBUG
+    args = parse_arguments()
+    DEBUG = args.debug
+
     all_devices = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
+    if args.list:
+        print('Listing devices:')
+        for device in all_devices:
+            print("filename = {}, name = {}, physical address = {}".format(device.fn, device.name, device.phys))
+        return
 
     # Main states
     listen_devices = {}
@@ -294,25 +333,20 @@ def main():
     registered_keys = {}
 
     # Define registered keys
-    registered_keys[8] = DualKey(8, 8, 42) # 7 <> L_SHIFT
-    # registered_keys[9] = DualKey(9, 9, 58) # 8 <> L_MOD
-    registered_keys[9] = DualKey(9, 9, 56) # 8 <> L_ALT
+    if args.key is not None:
+        for keys in args.key:
+            registered_keys[keys[0]] = DualKey(*keys)
+    print_registered_keys(registered_keys)
+
+    # registered_keys[8] = DualKey(8, 8, 42) # 7 <> L_SHIFT
+    # registered_keys[9] = DualKey(9, 9, 56) # 8 <> L_ALT
 
     # Main status indicator
     event_list = DLList()
 
     # Find all devices we want to reasonably listen to
     for device in all_devices:
-        print(device.fn, device.name, device.phys)
         add_device(device, listen_devices, grab_devices, selector)
-
-    print(listen_devices)
-    print(grab_devices)
-
-    mouse = evdev.InputDevice('/dev/input/event18')
-    # keybd = evdev.InputDevice('/dev/input/event18')
-    keybd = evdev.InputDevice('/dev/input/event5')
-    # keybd = evdev.InputDevice('/dev/input/event20')
 
     # Introduce monitor to listen for device additions and removals
     context = udev.Context()
@@ -336,8 +370,8 @@ def main():
                 if monitor is key.fileobj:
                     # Udev is sending something
                     device = monitor.poll()
-                    # if DEBUG:
-                    if True:
+                    if DEBUG:
+                    # if True:
                         print('Udev reported: {0.action} on {0.device_path}, device node: {0.device_node}'.format(device))
                     if device.action == 'remove':
                         # Device removed, let's see if we need to remove it from the lists
@@ -355,8 +389,10 @@ def main():
                         for event in device.read():
                             # if DEBUG:
                             #     print('Handling event')
-                            ret = handle_event(keybd, ui, event, registered_keys, event_list, grab_devices[device.fn], pre_emptive = True)
-                            # ret = print_event(keybd, ui, event)
+                            if args.print:
+                                ret = print_event(ui, event)
+                            else:
+                                ret = handle_event(ui, event, registered_keys, event_list, grab_devices[device.fn], pre_emptive = True)
                             # ret = True
                             if not ret:
                                 break
@@ -374,3 +410,4 @@ def main():
         cleanup(listen_devices, grab_devices, ui)
 
 main()
+# main_argparse()
