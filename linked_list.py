@@ -120,7 +120,7 @@ class DLList:
         else:
             self.head = node
         self.tail = node
-        if key not in key_dict:
+        if key not in self.key_dict:
             self.key_dict[key] = node
         
     def remove(self, key):

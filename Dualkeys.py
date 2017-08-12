@@ -1,5 +1,5 @@
-# vim: sw=4 ts=4 et
 #! /usr/bin/env python
+# vim: sw=4 ts=4 et
 
 # Dualkeys: Dual-role keys with evdev and uinput
 # Copyright (C) 2017 jchtt
