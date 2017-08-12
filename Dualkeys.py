@@ -1,6 +1,22 @@
 # vim: sw=4 ts=4 et
 #! /usr/bin/env python
 
+# Dualkeys: Dual-role keys with evdev and uinput
+# Copyright (C) 2017 jchtt
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import argparse
 import evdev
 import pyudev as udev
@@ -292,10 +308,11 @@ def parse_arguments():
             help = 'List all input devices recognized by python-evdev')
     parser.add_argument('-d', '--debug', action='store_true',
             help = "Print debug information")
-    args = parser.parse_args('--key 8 8 42 -k 9 9 56'.split())
+    # args = parser.parse_args('--key 8 8 42 -k 9 9 56'.split())
     # args = parser.parse_args('-p'.split())
     # args = parser.parse_args('-h'.split())
     # args = parser.parse_args('-l'.split())
+    args = parser.parse_args()
     if args.debug:
         print("Arguments passed: {}".format(args))
     return args
@@ -410,4 +427,3 @@ def main():
         cleanup(listen_devices, grab_devices, ui)
 
 main()
-# main_argparse()
