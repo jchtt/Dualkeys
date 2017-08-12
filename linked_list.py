@@ -1,11 +1,22 @@
 class DLNode:
+    """
+    Container class for an element of a doubly linked list
+    """
+
     def __init__(self, key, content, prev = None, next = None):
+        """
+        Construct with key value key, content object content, and pointers to
+        the previous and next element, defaulting to None.
+        """
         self.key = key
         self.content = content
         self.prev = prev
         self.next = next
 
     def remove(self):
+        """
+        Remove node by unlinking it.
+        """
         if self.next is None:
             if self.prev is not None:
                 # End of chain
@@ -18,14 +29,51 @@ class DLNode:
             self.next.prev = self.prev
             self.prev.next = self.next
 
+    def next_elements(self, include = False):
+        """
+        Generator that yields the following elements, including the element itself if
+        include is True.
+        """
+        if not include:
+            current_node = self.next
+        else:
+            current_node = self
+        while current_node is not None:
+            yield current_node
+            current_node = current_node.next
+
+    def prev_elements(self, include = False):
+        """
+        Generator that yields the preceding elements, including the element itself if
+        include is True.
+        """
+        if not include:
+            current_node = self.prev
+        else:
+            current_node = self
+        while current_node is not None:
+            yield current_node
+            current_node = current_node.prev
 
 class DLList:
+    """
+    Doubly linked list with transparent wrapper class DLNode.
+    Each element needs to have a unique key and is accessible in O(1)
+    by that key.
+    """
+
     def __init__(self):
+        """
+        Construct empty list.
+        """
         self.head = None
         self.tail = None
         self.key_dict = {}
 
     def __str__(self):
+        """
+        Simple string representation by parsing it into a list.
+        """
         l = []
         node = self.head
         while node is not None:
@@ -34,7 +82,19 @@ class DLList:
 
         return "DLList([{}])".format(", ".join(["{}: {}".format(node.key, str(node.content)) for node in l]))
 
+    def __iter__(self):
+        """
+        Iterator that starts at the head and goes from there.
+        """
+        if self.head is not None:
+            return self.head.next_elements(include = True)
+        else:
+            return iter(())
+
     def append(self, key, content):
+        """
+        Add a new node by key and content.
+        """
         node = DLNode(key, content, self.tail, None)
         if self.tail is not None:
             self.tail.next = node
@@ -44,6 +104,9 @@ class DLList:
         self.key_dict[key] = node
         
     def remove(self, key):
+        """
+        Remove a node by key.
+        """
         node = self.key_dict[key]
         if node is self.head:
             self.head = node.next
@@ -51,3 +114,9 @@ class DLList:
             self.tail = node.prev
         node.remove()
         del self.key_dict[key]
+
+    def isempty(self):
+        """
+        Tell if the list is empty.
+        """
+        return self.head is None
