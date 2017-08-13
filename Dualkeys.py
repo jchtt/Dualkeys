@@ -119,6 +119,19 @@ class DualKey:
         self.single_key = single_key
         self.mod_key = mod_key
 
+class KeyResponse:
+    """
+    Object to store the response to a key.
+
+    For now, only use it to indicate whether a key should go up again,
+    which we do not want if the same modifier was pressed before.
+    """
+
+    def __init__(self, pre_emptive_up = True, mod_down = False, conflicting_key = None):
+        self.pre_emptive_up = pre_emptive_up
+        self.mod_down = mod_down
+        self.conflicting_key = None
+
 def send_key(ui, scancode, keystate):
     """
     Send a key event via uinput.
@@ -126,7 +139,7 @@ def send_key(ui, scancode, keystate):
     ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
     ui.syn()
 
-def handle_event(ui, event, registered_keys, event_list, grabbed = True, pre_emptive = False):
+def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_list, grabbed = True, pre_emptive = False):
     """
     Handle the incoming key event. Main callback function.
     """
@@ -155,65 +168,75 @@ def handle_event(ui, event, registered_keys, event_list, grabbed = True, pre_emp
                 event_list.remove(node.key)
                 # node = node.next
             # Finally, send the key itself
-            if DEBUG:
-                print("Pushing final key: {}".format(key_event.scancode))
-            send_key(ui, key_event.scancode, key_event.keystate)
+            # if DEBUG:
+            #     print("Pushing final key: {}".format(key_event.scancode))
+            # send_key(ui, key_event.scancode, key_event.keystate)
             # ui.syn()
+        # Otherwise, handle like this
         else:
+            # Key down
             if key_event.keystate == 1:
                 if key_event.scancode not in registered_keys:
                     # Regular key
                     if event_list.isempty():
                         # Regular key, no list? Send!
                         send_key(ui, key_event.scancode, key_event.keystate)
-                        # ui.syn()
                     else:
                         # Regular key, but not sure what to do, so put it in the list
                         if DEBUG:
                             print("Regular key pressed, append, {}".format(key_event.scancode))
-                        event_list.append(key_event.scancode, 1)
+                        event_list.append(key_event.scancode, KeyResponse(False, False, None))
                 else:
                     # Special key, on a push we never know what to do, so put it in the list
                     if pre_emptive:
                         to_push = registered_keys[key_event.scancode].mod_key
+                        if to_push in ui.device.active_keys():
+                            # Modifier key was already pushed, which means when the
+                            # key triggers as regular, do not want to lift it up
+                            event_list.append(key_event.scancode, KeyResponse(False, True, to_push))
+                            conflict_list[to_push] = [key_event.scancode]
+                        else:
+                            event_list.append(key_event.scancode, KeyResponse(True, True, to_push))
                         send_key(ui, to_push, key_event.keystate)
-                        # ui.syn()
-                    event_list.append(key_event.scancode, 1)
-                # event_list.append(key_event.scancode, 1)
+                    else:
+                        event_list.append(key_event.scancode, KeyResponse(False, True, to_push))
+            # Key up
             elif key_event.keystate == 0:
                 if key_event.scancode not in registered_keys:
                     # Regular key goes up
-                    if event_list.isempty() or key_event.scancode not in event_list.key_dict:
-                        # Nothing backed up or at least not the key, just send
+                    if event_list.isempty():
+                        # Nothing backed up, just send.
                         send_key(ui, key_event.scancode, key_event.keystate)
-                        # ui.syn()
+                    elif key_event.scancode not in event_list.key_dict:
+                        if not key_event.scancode in conflict_list:
+                            send_key(ui, key_event.scancode, key_event.keystate)
+                        else:
+                            # We have a modifier conflict, in which case do not lift the key, but
+                            # change the conflict note in the corresponding key.
+                            for code in conflict_list[key_event.scancode]:
+                                event_list[code].pre_emptive_up = True
+                                event_list[code].mod_down = True
                     else:
                         # Regular key goes up, went down before, so all keys are modifiers
                         if DEBUG:
                             print("Regular key up.")
-                        # node = event_list.head
-                        # while node is not None:
                         for node in event_list:
                             if node.key in registered_keys:
                                 # Special key
                                 to_push = registered_keys[node.key].mod_key
                                 if not pre_emptive:
                                     send_key(ui, to_push, 1)
-                                    # ui.syn()
                             else:
                                 # Regular key
                                 to_push = node.key
                                 send_key(ui, to_push, 1)
-                                # ui.syn()
                             if DEBUG:
                                 print("Pushing key {}".format(to_push))
                             event_list.remove(node.key)
-                            # node = node.next
                         # Finally let the key go up
                         if DEBUG:
                             print("Final key up {}".format(key_event.scancode))
                         send_key(ui, key_event.scancode, key_event.keystate)
-                        # ui.syn()
                 else:
                     # Special key goes up
                     dual_key = registered_keys[key_event.scancode]
@@ -232,19 +255,18 @@ def handle_event(ui, event, registered_keys, event_list, grabbed = True, pre_emp
                                 to_push = registered_keys[node.key].mod_key
                                 if not pre_emptive:
                                     send_key(ui, to_push, 1)
-                                    # ui.syn()
                             else:
                                 to_push = node.key
                                 send_key(ui, to_push, 1)
-                                # ui.syn()
                             event_list.remove(node.key)
                             node = node.next
 
-                        # Stopped at the node in question
-                        if pre_emptive:
+                        # Stop at the node in question
+                        response = node.content
+                        if pre_emptive and response.pre_emptive_up:
+                            # Only lift it if there is no conflicting key that was pressed before
                             to_lift = registered_keys[node.key].mod_key
                             send_key(ui, to_lift, 0)
-                            # ui.syn()
                         to_push_single = registered_keys[node.key].single_key
                         send_key(ui, to_push_single, 1)
                         event_list.remove(node.key)
@@ -257,9 +279,9 @@ def handle_event(ui, event, registered_keys, event_list, grabbed = True, pre_emp
 
                         # Finally, send the up signal
                         send_key(ui, to_push_single, 0)
-                        # ui.syn()
 
-        # print(event_list)
+        if DEBUG:
+            print(event_list)
     return True
 
 def print_event(ui, event):
@@ -361,6 +383,7 @@ def main():
 
     # Main status indicator
     event_list = DLList()
+    conflict_list = {}
 
     # Find all devices we want to reasonably listen to
     for device in all_devices:
@@ -409,10 +432,12 @@ def main():
                         for event in device.read():
                             # if DEBUG:
                             #     print('Handling event')
+                            if DEBUG:
+                                print("Active keys: {}".format(ui.device.active_keys()))
                             if args.print:
                                 ret = print_event(ui, event)
                             else:
-                                ret = handle_event(ui, event, registered_keys, event_list, grab_devices[device.fn], pre_emptive = True)
+                                ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
                             # ret = True
                             if not ret:
                                 break
