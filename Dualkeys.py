@@ -148,7 +148,7 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
     if event.type == evdev.ecodes.EV_KEY:
         key_event = evdev.util.categorize(event)
         if DEBUG:
-            print("Received key with scancode {}".format(key_event.scancode))
+            print("Received key with scancode = {}, keystate = {}".format(key_event.scancode, key_event.keystate))
         # If we get a mouse button, immediately resolve everything
         if not grabbed:
             # node = event_list.head
@@ -214,8 +214,11 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
                             # We have a modifier conflict, in which case do not lift the key, but
                             # change the conflict note in the corresponding key.
                             for code in conflict_list[key_event.scancode]:
-                                event_list[code].pre_emptive_up = True
-                                event_list[code].mod_down = True
+                                node = event_list.key_dict[code]
+                                node.content.pre_emptive_up = True
+                                if DEBUG:
+                                    print("Setting pre_emptive_up to True")
+                                node.content.mod_down = True
                     else:
                         # Regular key goes up, went down before, so all keys are modifiers
                         if DEBUG:
@@ -263,8 +266,11 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
 
                         # Stop at the node in question
                         response = node.content
+                        # print("Content of pre_emptive_up: {}".format(response.pre_emptive_up))
                         if pre_emptive and response.pre_emptive_up:
                             # Only lift it if there is no conflicting key that was pressed before
+                            if DEBUG:
+                                print("Lifting pre_emptive key")
                             to_lift = registered_keys[node.key].mod_key
                             send_key(ui, to_lift, 0)
                         to_push_single = registered_keys[node.key].single_key
