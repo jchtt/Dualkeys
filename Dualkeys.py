@@ -21,6 +21,7 @@ import argparse
 import evdev
 import pyudev as udev
 import errno
+import re
 from enum import Enum
 from linked_list import *
 from selectors import DefaultSelector, EVENT_READ, EVENT_WRITE
@@ -375,6 +376,8 @@ def main():
 
     ui = evdev.UInput()
 
+    evdev_re = re.compile(r'^/dev/input/event\d+$')
+
     # Finally clause to catch in particular Ctrl-C and do cleanup
     try:
         # Main loop
@@ -395,7 +398,7 @@ def main():
                         # Note that this probably won't happen, since the device will report an event and
                         # the IOError below will get triggered
                         remove_device(device, listen_devices, grab_devices, selector)
-                    elif device.action == 'add' and device.device_node is not None and device.device_node != ui.device.fn:
+                    elif device.action == 'add' and device.device_node is not None and device.device_node != ui.device.fn and evdev_re.match(device.device_node) is not None:
                         # Device added, add it to everything
                         evdev_device = evdev.InputDevice(device.device_node)
                         add_device(evdev_device, listen_devices, grab_devices, selector)
