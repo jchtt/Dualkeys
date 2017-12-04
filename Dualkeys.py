@@ -27,6 +27,10 @@ import time
 from enum import Enum
 from linked_list import *
 from selectors import DefaultSelector, EVENT_READ, EVENT_WRITE
+import asyncio
+import queue
+import threading
+import functools
 
 # from select import select
 # from collections import deque
@@ -68,7 +72,7 @@ def get_handle_type(device):
     else:
         return HandleType.IGNORE
 
-def add_device(device, listen_devices, grab_devices, selector):
+def add_device(device, listen_devices, grab_devices, device_futures, loop, q):
     """
     Add device to listen_devices, grab_devices and selector if
     it matches the output of get_handle_type.
@@ -80,7 +84,9 @@ def add_device(device, listen_devices, grab_devices, selector):
     if handle_type == HandleType.GRAB:
         listen_devices[device.fn] = device
         grab_devices[device.fn] = True
-        selector.register(device, EVENT_READ)
+        # selector.register(device, EVENT_READ)
+        future = asyncio.run_coroutine_threadsafe(put_events(q, device), loop)
+        device_futures[device.fn] = future
         device.grab()
         time.sleep(0.2)
         device.repeat = evdev.device.KbdInfo(300, 600000)
@@ -90,9 +96,11 @@ def add_device(device, listen_devices, grab_devices, selector):
     elif handle_type == HandleType.NOGRAB:
         listen_devices[device.fn] = device
         grab_devices[device.fn] = False
-        selector.register(device, EVENT_READ)
+        # selector.register(device, EVENT_READ)
+        future = asyncio.run_coroutine_threadsafe(put_events(q, device), loop)
+        device_futures[device.fn] = future
 
-def remove_device(device, listen_devices, grab_devices, selector):
+def remove_device(device, listen_devices, grab_devices, device_futures, loop):
     """
     Remove device, complementary operation to add_device.
 
@@ -105,7 +113,8 @@ def remove_device(device, listen_devices, grab_devices, selector):
     else:
         fn = device.device_node
     if fn in listen_devices:
-        selector.unregister(listen_devices[fn])
+        # selector.unregister(listen_devices[fn])
+        loop.call_soon_threadsafe(device_futures[fn].cancel)
         del listen_devices[fn]
         if fn in grab_devices:
             del grab_devices[fn]
@@ -412,6 +421,26 @@ def print_registered_keys(registered_keys):
         print("single key = [{} | {}], ".format(single_key, single_key_code), end = "")
         print("modifier key = [{} | {}]".format(mod_key, mod_key_code))
 
+async def put_events(queue, device):
+    async for event in device.async_read_loop():
+        queue.put((device, event))
+
+async def handle_events_async(queue, ui):
+    while True:
+        ret = queue.get()
+
+        if ret is None:
+            break
+        (device, event) = ret
+        # print(event)
+        print_event(ui, event)
+        # time.sleep(0.05)
+        queue.task_done()
+
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
 # Main program
 def main():
     global DEBUG
@@ -428,6 +457,7 @@ def main():
     # Main states
     listen_devices = {}
     grab_devices = {}
+    device_futures = {}
     selector = DefaultSelector()
     registered_keys = {}
 
@@ -444,17 +474,52 @@ def main():
     event_list = DLList()
     conflict_list = {}
 
+    # Event add loop, to be started in a new thread
+    event_loop = asyncio.new_event_loop()
+    event_queue = queue.Queue() # Event queue
+
+    # Exception handling
+    # shared_exception = None
+    # shared_exception_lock = threading.Lock()
+    termination_event = threading.Event() 
+    
+    def wait_for_error(event):
+        event.wait()
+
+    def raise_termination_exception(future, s, loop):
+        asyncio.set_event_loop(loop)
+        print("Printing tasks")
+        tasks = asyncio.gather(*asyncio.Task.all_tasks())
+        def collect_and_stop(t):
+            print("My exception: ", t.exception())
+            loop.stop()
+        # tasks.add_done_callback(lambda t: loop.stop())
+        tasks.add_done_callback(collect_and_stop)
+        tasks.cancel()
+        # loop.run_forever()
+        # print("Exception: ", tasks.exception())
+            
+        # loop.stop()
+        raise Exception(s)
+
+    future = event_loop.run_in_executor(None, wait_for_error, termination_event)
+    future.add_done_callback(functools.partial(raise_termination_exception, s = "event listener terminated", loop = event_loop))
+
+    error_queue = queue.Queue()
+    t = threading.Thread(target = start_loop, args = (event_loop,))
+    device_lock = threading.Lock() # Lock for access to the dicts etc.
+
     # Find all devices we want to reasonably listen to
     for device in all_devices:
-        add_device(device, listen_devices, grab_devices, selector)
+        add_device(device, listen_devices, grab_devices, device_futures, event_loop, event_queue)
 
     # Introduce monitor to listen for device additions and removals
     context = udev.Context()
     monitor = udev.Monitor.from_netlink(context)
     monitor.filter_by('input')
-    monitor.start()
+    # monitor.start()
 
-    selector.register(monitor, EVENT_READ)
+    # selector.register(monitor, EVENT_READ)
 
     ui = evdev.UInput()
 
@@ -462,56 +527,176 @@ def main():
 
     # Try-finally clause to catch in particular Ctrl-C and do cleanup
     try:
-        # Main loop
+        t.start()
+        # loop = asyncio.get_event_loop()
+        # asyncio.ensure_future(handle_events_async(q, ui))
+
+        def monitor_callback(device):
+            # if DEBUG:
+            if True:
+                print('Udev reported: {0.action} on {0.device_path}, device node: {0.device_node}'.format(device))
+            remove_action = device.action == 'remove'
+            add_action = device.action == 'add' and device.device_node is not None and device.device_node != ui.device.fn and evdev_re.match(device.device_node) is not None
+            if remove_action or add_action:
+                device_lock.acquire()
+                print("Locked by monitor")
+                # Device removed, let's see if we need to remove it from the lists
+                # Note that this probably won't happen, since the device will report an event and
+                # the IOError below will get triggered
+                try:
+                    if remove_action:
+                        remove_device(device, listen_devices, grab_devices, device_futures, event_loop)
+                    elif add_action:
+                        evdev_device = evdev.InputDevice(device.device_node)
+                        add_device(evdev_device, listen_devices, grab_devices, device_futures, event_loop, event_queue)
+                        raise Exception("Removed!")
+                except BaseException as e:
+                    error_queue.put(e)
+                    raise
+                finally:
+                    device_lock.release()
+                    if DEBUG:
+                        print("Lock released by monitor")
+
+        def event_worker(event_queue):
+            while True:
+                print("Check for event")
+                elem = event_queue.get()
+                if type(elem) is Exception:
+                    print("event_worker received exception")
+                    raise elem
+                else:
+                    (device, event) = event_queue.get()
+                # print("Pre-lock")
+                device_lock.acquire()
+                if DEBUG:
+                    if event.type == evdev.ecodes.EV_KEY:
+                        print("Active keys: {}".format(ui.device.active_keys()))
+                try:
+                    if args.print:
+                        ret = print_event(ui, event)
+                    else:
+                        ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
+                except IOError as e:
+                    # Check if the device got removed, if so, get rid of it
+                    if e.errno != errno.ENODEV: raise
+                    if DEBUG:
+                        # if True:
+                        print("Device {0.fn} removed.".format(device))
+                        remove_device(device, listen_devices, grab_devices, device_futures, event_loop)
+                finally:
+                    event_queue.task_done()
+                    device_lock.release()
+                    # print("Past lock")
+
+        # monitor.start()
+        observer = udev.MonitorObserver(monitor, callback = monitor_callback)
+        observer.start()
+        print("Observer started")
+
+        event_handler = threading.Thread(target = event_worker, args = (event_queue,))
+        event_handler.start()
+        print("Event handler started")
+
+        # loop.run_forever()
+
         while True:
             if DEBUG:
                 print("-"*20)
                 print("Loop head at {:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now()))
                 # print("Listening on devices: {}".format(listen_devices))
-            for key, mask in selector.select():
-                if monitor is key.fileobj:
-                    # Udev is sending something
-                    device = monitor.poll()
-                    if DEBUG:
-                    # if True:
-                        print('Udev reported: {0.action} on {0.device_path}, device node: {0.device_node}'.format(device))
-                    if device.action == 'remove':
-                        # Device removed, let's see if we need to remove it from the lists
-                        # Note that this probably won't happen, since the device will report an event and
-                        # the IOError below will get triggered
-                        remove_device(device, listen_devices, grab_devices, selector)
-                    elif device.action == 'add' and device.device_node is not None and device.device_node != ui.device.fn and evdev_re.match(device.device_node) is not None:
-                        # Device added, add it to everything
-                        evdev_device = evdev.InputDevice(device.device_node)
-                        add_device(evdev_device, listen_devices, grab_devices, selector)
-                else:
-                # Key got registered, handle it
-                    device = key.fileobj
-                    try:
-                        for event in device.read():
-                            # if DEBUG:
-                            #     print('Handling event')
-                            if DEBUG:
-                                if event.type == evdev.ecodes.EV_KEY:
-                                    print("Active keys: {}".format(ui.device.active_keys()))
-                            if args.print:
-                                ret = print_event(ui, event)
-                            else:
-                                ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
-                            # ret = True
-                            if not ret:
-                                break
-                    except IOError as e:
-                        # Check if the device got removed, if so, get rid of it
-                        if e.errno != errno.ENODEV: raise
-                        if DEBUG:
-                        # if True:
-                            print("Device {0.fn} removed.".format(device))
-                            remove_device(device, listen_devices, grab_devices, selector)
-    # except (KeyboardInterrupt, SystemExit):
-    except:
-        raise
+            # raise Exception("Test")
+
+            # if not error_queue.empty():
+            # e = error_queue.get(False)
+            e = error_queue.get()
+            termination_event.set()
+            print(e)
+            print("Putting exception")
+            event_queue.put(e)
+            print("Raising exception")
+            raise e
+            print("Exception raised")
+            error_queue.task_done()
+            
+
+            # (device, event) = event_queue.get()
+            # # print("Pre-lock")
+            # device_lock.acquire()
+            # if DEBUG:
+            #     if event.type == evdev.ecodes.EV_KEY:
+            #         print("Active keys: {}".format(ui.device.active_keys()))
+            # try:
+            #     if args.print:
+            #         ret = print_event(ui, event)
+            #     else:
+            #         ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
+            # except IOError as e:
+            #     # Check if the device got removed, if so, get rid of it
+            #     if e.errno != errno.ENODEV: raise
+            #     if DEBUG:
+            #         # if True:
+            #         print("Device {0.fn} removed.".format(device))
+            #         remove_device(device, listen_devices, grab_devices, device_futures, event_loop)
+            # finally:
+            #     event_queue.task_done()
+            #     device_lock.release()
+            #     # print("Past lock")
+
+        # # Main loop
+        # while True:
+        #     if DEBUG:
+        #         print("-"*20)
+        #         print("Loop head at {:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now()))
+        #         # print("Listening on devices: {}".format(listen_devices))
+        #     for key, mask in selector.select():
+        #         # if monitor is key.fileobj:
+        #         #     # Udev is sending something
+        #         #     device = monitor.poll()
+        #         #     if DEBUG:
+        #         #     # if True:
+        #         #         print('Udev reported: {0.action} on {0.device_path}, device node: {0.device_node}'.format(device))
+        #         #     if device.action == 'remove':
+        #         #         # Device removed, let's see if we need to remove it from the lists
+        #         #         # Note that this probably won't happen, since the device will report an event and
+        #         #         # the IOError below will get triggered
+        #         #         remove_device(device, listen_devices, grab_devices, selector)
+        #         #     elif device.action == 'add' and device.device_node is not None and device.device_node != ui.device.fn and evdev_re.match(device.device_node) is not None:
+        #         #         # Device added, add it to everything
+        #         #         evdev_device = evdev.InputDevice(device.device_node)
+        #         #         add_device(evdev_device, listen_devices, grab_devices, selector)
+        #         # else:
+        #         # Key got registered, handle it
+        #             device = key.fileobj
+        #             try:
+        #                 for event in device.read():
+        #                     # if DEBUG:
+        #                     #     print('Handling event')
+        #                     if DEBUG:
+        #                         if event.type == evdev.ecodes.EV_KEY:
+        #                             print("Active keys: {}".format(ui.device.active_keys()))
+        #                     if args.print:
+        #                         ret = print_event(ui, event)
+        #                         time.sleep(0.1)
+        #                     else:
+        #                         ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
+        #                         # time.sleep(0.02)
+        #                     # ret = True
+        #                     if not ret:
+        #                         break
+        #             except IOError as e:
+        #                 # Check if the device got removed, if so, get rid of it
+        #                 if e.errno != errno.ENODEV: raise
+        #                 if DEBUG:
+        #                 # if True:
+        #                     print("Device {0.fn} removed.".format(device))
+        #                     remove_device(device, listen_devices, grab_devices, selector)
+    # # except (KeyboardInterrupt, SystemExit):
+    except Exception as e:
+        raise e
     finally:
+        t.join()
+        print("Event listener joined")
         cleanup(listen_devices, grab_devices, ui)
 
 main()
