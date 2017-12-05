@@ -75,7 +75,7 @@ def get_handle_type(device):
     else:
         return HandleType.IGNORE
 
-def add_device(device, listen_devices, grab_devices, device_futures, loop, q):
+def add_device(device, listen_devices, grab_devices, device_futures, loop, q, error_queue):
     """
     Add device to listen_devices, grab_devices and selector if
     it matches the output of get_handle_type.
@@ -88,7 +88,7 @@ def add_device(device, listen_devices, grab_devices, device_futures, loop, q):
         listen_devices[device.fn] = device
         grab_devices[device.fn] = True
         # selector.register(device, EVENT_READ)
-        future = asyncio.run_coroutine_threadsafe(put_events(q, device), loop)
+        future = asyncio.run_coroutine_threadsafe(put_events(q, device, listen_devices, grab_devices, device_futures, loop, error_queue), loop)
         device_futures[device.fn] = future
         device.grab()
         time.sleep(0.2)
@@ -100,7 +100,7 @@ def add_device(device, listen_devices, grab_devices, device_futures, loop, q):
         listen_devices[device.fn] = device
         grab_devices[device.fn] = False
         # selector.register(device, EVENT_READ)
-        future = asyncio.run_coroutine_threadsafe(put_events(q, device), loop)
+        future = asyncio.run_coroutine_threadsafe(put_events(q, device, listen_devices, grab_devices, device_futures, loop, error_queue), loop)
         device_futures[device.fn] = future
 
 def remove_device(device, listen_devices, grab_devices, device_futures, loop):
@@ -424,31 +424,64 @@ def print_registered_keys(registered_keys):
         print("single key = [{} | {}], ".format(single_key, single_key_code), end = "")
         print("modifier key = [{} | {}]".format(mod_key, mod_key_code))
 
-async def put_events(queue, device):
+async def put_events(queue, device, listen_devices, grab_devices, device_futures, event_loop, error_queue):
+    """
+    Coroutine for putting events in the event queue.
+    """
+
     async for event in device.async_read_loop():
-        if event.type == evdev.ecodes.EV_KEY:
-            # key_event = evdev.util.categorize(event)
-            # print(key_event.scancode, ", ", key_event.keystate)
-            # print((device, key_event.scancode, key_event.keystate))
-            queue.put((device, event))
-            # print(queue.qsize())
-            print("Done putting")
-
-# async def handle_events_async(queue, ui):
-#     while True:
-#         ret = queue.get()
-
-#         if ret is None:
-#             break
-#         (device, event) = ret
-#         # print(event)
-#         print_event(ui, event)
-#         # time.sleep(0.05)
-#         queue.task_done()
+        try:
+            if event.type == evdev.ecodes.EV_KEY:
+                queue.put((device, event))
+                # print("Done putting")
+        except IOError as e:
+            # Check if the device got removed, if so, get rid of it
+            if e.errno != errno.ENODEV: raise
+            if DEBUG:
+                # if True:
+                print("Device {0.fn} removed.".format(device))
+                remove_device(device, listen_devices, grab_devices, device_futures, event_loop)
+            break
+        except BaseException as e:
+            error_queue.put(e)
+            raise e
 
 def start_loop(loop):
+    """
+    Start given loop. Thread worker.
+    """
+
     asyncio.set_event_loop(loop)
     loop.run_forever()
+
+def wait_for_error(event):
+    """
+    Wait function, to be run in a separate thread within the
+    event-producer loop in order to signal it to stop.
+    """
+
+    event.wait()
+
+def raise_termination_exception(future, s, loop):
+    """
+    Callback to shut down the event-producer loop.
+    """
+    
+    asyncio.set_event_loop(loop)
+    # print("Printing tasks")
+    tasks = asyncio.gather(*asyncio.Task.all_tasks())
+    def collect_and_stop(t):
+        t.exception()
+        # print("My exception: ", t.exception())
+        loop.stop()
+    # tasks.add_done_callback(lambda t: loop.stop())
+    tasks.add_done_callback(collect_and_stop)
+    tasks.cancel()
+    # loop.run_forever()
+    # print("Exception: ", tasks.exception())
+        
+    # loop.stop()
+    # raise Exception(s)
 
 # Main program
 def main():
@@ -487,31 +520,10 @@ def main():
     event_loop = asyncio.new_event_loop()
     event_queue = queue.Queue() # Event queue
 
-    # Exception handling
-    # shared_exception = None
-    # shared_exception_lock = threading.Lock()
+    # Exception handling, stop on this event
     termination_event = threading.Event() 
     
-    def wait_for_error(event):
-        event.wait()
-
-    def raise_termination_exception(future, s, loop):
-        asyncio.set_event_loop(loop)
-        print("Printing tasks")
-        tasks = asyncio.gather(*asyncio.Task.all_tasks())
-        def collect_and_stop(t):
-            t.exception()
-            # print("My exception: ", t.exception())
-            loop.stop()
-        # tasks.add_done_callback(lambda t: loop.stop())
-        tasks.add_done_callback(collect_and_stop)
-        tasks.cancel()
-        # loop.run_forever()
-        # print("Exception: ", tasks.exception())
-            
-        # loop.stop()
-        # raise Exception(s)
-
+    # Add termination function to event_loop
     future = event_loop.run_in_executor(None, wait_for_error, termination_event)
     future.add_done_callback(functools.partial(raise_termination_exception, s = "event-producer terminated", loop = event_loop))
 
@@ -521,7 +533,7 @@ def main():
 
     # Find all devices we want to reasonably listen to
     for device in all_devices:
-        add_device(device, listen_devices, grab_devices, device_futures, event_loop, event_queue)
+        add_device(device, listen_devices, grab_devices, device_futures, event_loop, event_queue, error_queue)
 
     # Introduce monitor to listen for device additions and removals
     context = udev.Context()
@@ -535,11 +547,11 @@ def main():
 
     evdev_re = re.compile(r'^/dev/input/event\d+$')
 
-    event_producer.start()
-    # loop = asyncio.get_event_loop()
-    # asyncio.ensure_future(handle_events_async(q, ui))
-
     def monitor_callback(device):
+        """
+        Worker function for monitor to add and remove devices.
+        """
+
         # if DEBUG:
         if True:
             print('Udev reported: {0.action} on {0.device_path}, device node: {0.device_node}'.format(device))
@@ -556,7 +568,7 @@ def main():
                     remove_device(device, listen_devices, grab_devices, device_futures, event_loop)
                 elif add_action:
                     evdev_device = evdev.InputDevice(device.device_node)
-                    add_device(evdev_device, listen_devices, grab_devices, device_futures, event_loop, event_queue)
+                    add_device(evdev_device, listen_devices, grab_devices, device_futures, event_loop, event_queue, error_queue)
                     # raise Exception("Removed!")
             except BaseException as e:
                 error_queue.put(e)
@@ -567,9 +579,13 @@ def main():
                     print("Lock released by monitor")
 
     def event_worker(event_queue):
+        """
+        Worker function for event-consumer to handle events.
+        """
+
         try:
             while True:
-                print("Check for event")
+                print("-"*20)
                 elem = event_queue.get()
                 if type(elem) is ShutdownException:
                     print("event_consumer asked to shut down")
@@ -596,26 +612,29 @@ def main():
                 finally:
                     event_queue.task_done()
                     device_lock.release()
-                    print("Past lock")
+                    # print("Past lock")
         except Exception as e:
             error_queue.put(e)
             raise e
 
-    # monitor.start()
+    event_producer.start()
+    if DEBUG:
+        print("event-producer started")
+
     observer = udev.MonitorObserver(monitor, callback = monitor_callback, name = "device-monitor")
     observer.start()
-    print("Observer started")
+    if DEBUG:
+        print("observer started")
 
     event_consumer = threading.Thread(target = event_worker, args = (event_queue,), name = "event-consumer")
     event_consumer.start()
-    print("Event handler started")
+    if DEBUG:
+        print("event-consumer started")
+
     # Try-finally clause to catch in particular Ctrl-C and do cleanup
     try:
         # Wait for exceptions
         e = error_queue.get()
-        termination_event.set()
-        print("Putting exception")
-        event_queue.put(ShutdownException())
         # print("Raising exception")
         # raise e
         # print("Exception raised")
@@ -624,6 +643,9 @@ def main():
     except Exception as e:
         raise e
     finally:
+        print("Shutting down...")
+        termination_event.set()
+        event_queue.put(ShutdownException())
         event_producer.join()
         if DEBUG:
             print("event-producer joined")
