@@ -31,6 +31,7 @@ import asyncio
 import queue
 import threading
 import functools
+import time
 
 # from select import select
 # from collections import deque
@@ -158,10 +159,13 @@ def send_key(ui, scancode, keystate):
     ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
     ui.syn()
 
-def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_list, grabbed = True, pre_emptive = False):
+def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_list, grabbed = True, pre_emptive = False, timing_stats = {}):
     """
     Handle the incoming key event. Main callback function.
     """
+
+    if TIMING:
+        cur_time = time.time()
 
     # Only act on key presses
     if event.type == evdev.ecodes.EV_KEY:
@@ -311,8 +315,8 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
                         while node.key != key_event.scancode:
                         # for node in event_list:
                             if node.key in registered_keys:
-                                to_push = registered_keys[node.key].mod_key
                                 if not pre_emptive:
+                                    to_push = registered_keys[node.key].mod_key
                                     send_key(ui, to_push, 1)
                                     if DEBUG:
                                         print("Not pre-emptive, lift {}".format(to_push))
@@ -325,6 +329,18 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
                             node = node.next
 
                         # Stop at the node in question
+                        # If pre-emptive, want to temporarily lift all following modifier keys before pushing the key
+                        if pre_emptive:
+                            cur_node = node
+                            node = cur_node.next
+                            while node is not None and node.key in registered_keys:
+                                to_lift = registered_keys[node.key].mod_key
+                                send_key(ui, to_lift, 0)
+                                node = node.next
+                                if DEBUG:
+                                    print("Lifting {} to clear".format(to_lift))
+
+                        node = cur_node
                         response = node.content
                         # print("Content of pre_emptive_up: {}".format(response.pre_emptive_up))
                         if pre_emptive and response.pre_emptive_up:
@@ -338,8 +354,19 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
                         if DEBUG:
                             print("No pre_emptive_up, lift {}".format(to_push_single))
                         event_list.remove(node.key)
-                        node = node.next
 
+                        # If pre-emptive, put all those modifiers back in
+                        if pre_emptive:
+                           node = cur_node.next 
+                           while node is not None and node.key in registered_keys:
+                               to_push = registered_keys[node.key].mod_key
+                               send_key(ui, to_push, 1)
+                               node = node.next
+                               if DEBUG:
+                                   print("Pushing {} to put it back after resolve".format(to_push))
+
+                        # Press the remaining keys
+                        node = cur_node.next
                         while node is not None and node.key not in registered_keys:
                             send_key(ui, node.key, 1)
                             if DEBUG:
@@ -354,6 +381,11 @@ def handle_event(ui, active_keys, event, registered_keys, event_list, conflict_l
 
         if DEBUG:
             print("Done, event_list: {}".format(event_list))
+        if TIMING:
+            timing_stats["total"] += time.time() - cur_time
+            timing_stats["calls"] += 1
+            if timing_stats["calls"] % 10 == 0:
+                print("Average time/call = {}".format(timing_stats["total"]/timing_stats["calls"]))
     return True
 
 def print_event(ui, event):
@@ -402,6 +434,8 @@ def parse_arguments():
             help = 'List all input devices recognized by python-evdev')
     parser.add_argument('-d', '--debug', action='store_true',
             help = "Print debug information")
+    parser.add_argument('-t', '--timing', action='store_true',
+            help = "Print timing results")
     # args = parser.parse_args('--key 8 8 42 -k 9 9 56'.split())
     # args = parser.parse_args('-p'.split())
     # args = parser.parse_args('-h'.split())
@@ -456,7 +490,7 @@ def start_loop(loop):
 
 def wait_for_error(event):
     """
-    Wait function, to be run in a separate thread within the
+    Wait function, to be run asynchronously within the
     event-producer loop in order to signal it to stop.
     """
 
@@ -485,9 +519,10 @@ def raise_termination_exception(future, s, loop):
 
 # Main program
 def main():
-    global DEBUG
+    global DEBUG, TIMING
     args = parse_arguments()
     DEBUG = args.debug
+    TIMING = args.timing
 
     all_devices = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
     if args.list:
@@ -584,6 +619,10 @@ def main():
         """
 
         try:
+            timing_stats = {}
+            if TIMING:
+                timing_stats["total"] = 0
+                timing_stats["calls"] = 0
             while True:
                 print("-"*20)
                 elem = event_queue.get()
@@ -601,7 +640,7 @@ def main():
                     if args.print:
                         ret = print_event(ui, event)
                     else:
-                        ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True)
+                        ret = handle_event(ui, device.active_keys(), event, registered_keys, event_list, conflict_list, grab_devices[device.fn], pre_emptive = True, timing_stats = timing_stats)
                 except IOError as e:
                     # Check if the device got removed, if so, get rid of it
                     if e.errno != errno.ENODEV: raise
