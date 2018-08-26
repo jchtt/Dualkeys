@@ -99,7 +99,8 @@ class DLList:
             l.append(node)
             node = node.next
 
-        return "DLList([{}])".format(", ".join(["{}: {}".format(node.key, str(node.content)) for node in l]))
+        # return "DLList([{}])".format(", ".join(["{}: {}".format(node.key, str(node.content)) for node in l]))
+        return "DLList([{}])".format(", ".join(["{}".format(node.key) for node in l]))
 
     def __iter__(self):
         """

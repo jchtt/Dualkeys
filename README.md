@@ -1,5 +1,10 @@
 # Dualkeys: dual-role keys with evdev and uinput
 
+## TODO: Explain algorithm
+
+Essentially, save all sequences starting with a dual key and wait for the first key raise.
+Then, interpret all previous dual keys as modifiers.
+
 ## Usage
 
 Dualkeys needs access to your device files and to uinput.
