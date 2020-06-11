@@ -17,8 +17,11 @@ key: [
     "(36, 36, 54)", # j to rshift
     "(5, 5, 56)", # 4 to lalt
     "(10, 10, 100)", # 9 to ralt
-    "(100, 28, 100)", # ralt to enter
+    "(100, 28, 100, True)", # ralt to enter
     ]
-# pre-emptive-mods: [42, 54, 56, 100, 29, 97] # lshift, rshift, lalt, ralt, TODO: lctrl, rctrl
-repeat: 600
-debug: True
+pre-emptive-mods: [42, 54, 56, 100, 29, 97] # lshift, rshift, lalt, ralt, TODO: lctrl, rctrl
+repeat-timeout: 200
+repeat-keys: [33, 36, 57, 5, 10, 100]
+idle-timeout: 800
+idle-keys: [33, 36, 57, 5, 10, 100]
+# debug: True

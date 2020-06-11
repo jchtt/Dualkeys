@@ -19,6 +19,7 @@
 - Change command line parameters to allow listening to specific devices.
 - If the repeat bug I used to encounter is _not_ due to some logic bug, but somehow due to losing events, consider a timeout based mechanism checking if there is still a key-repeat being sent for all keys that are down. If not, raise them.
 - Make resolve and related routines local to some class, will make reading (slightly) easier.
+- Re-structure to interpret dual keys as general rules of key substitutions instead of just dual keys. This is hard, but would allow easy substitutions such as Ctrl-Tab/Alt-Tab swap if I change Ctrl and Alt.
 
 ## Done
 - Increase time-out for auto-repeat

@@ -32,7 +32,10 @@ def str2list(s):
                 'RCTRL' : 'RIGHTCTRL',
                 'LSHIFT' : 'LEFTSHIFT',
                 'SHIFT' : 'RIGHTSHIFT',
-                'RSHIFT' : 'RIGHTSHIFT'
+                'RSHIFT' : 'RIGHTSHIFT',
+                'LALT' : 'LEFTALT',
+                'RALT' : 'RIGHTALT',
+                'ALT' : 'LEFTALT',
                 }
         key_str = key_repl_dict.get(key_str, key_str)
         
@@ -65,6 +68,8 @@ def list2str(l):
                 'RIGHTCTRL' : 'RCTRL',
                 'LEFTSHIFT' : 'LSHIFT',
                 'RIGHTSHIFT' : 'RSHIFT',
+                'LEFTALT' : 'LALT',
+                'RIGHTALT' : 'RALT'
                 }
         return repl_dict.get(s, s)
 
@@ -316,68 +321,135 @@ def test_dualkeys(prog_arguments, test_sequences,
 
 
 
-# test_sequences = [
-#         # ('A d, A u', 'A d, A u'),
-#         # regular key
-
-# #         ('space d, A d, A u, Space u', 'lctrl d, A d, A u, lctrl u'),
-# #         # standard space -> ctrl
-
-# #         ('space d, A d, Space u, A u', 'LCTRL d, LCTRL u, SPACE d, A d, SPACE u, A u'),
-# #         # sticky finger space -> ctrl
-
-# #         ('f d, space d, A d, A u, space u, f u', 'LEFTSHIFT d, LCTRL d, A d, A u, LCTRL u, LEFTSHIFT u'),
-# #         # standard space -> ctrl, f -> shift
-
-# #         ('f d, space d, A d, A u, f u, space u', 'LEFTSHIFT d, LCTRL d, A d, A u, LEFTSHIFT u, LCTRL u'),
-# #         # standard space -> ctrl, f -> shift, reverse lifting
-
-#         # ('lctrl d, lshift d, lctrl u, lshift u', 'LCTRL d, LSHIFT d, LSHIFT u, LSHIFT d, LCTRL u, LSHIFT u'),
-#         # # regular modifiers, n1
-#         # # TODO: think about this. Technically, there's an unnecessary lshift action going on
-
-#         # ('lctrl d, lshift d, lshift u, lctrl u', 'LCTRL d, LSHIFT d, LSHIFT u, LCTRL u'),
-#         # # regular modifiers, n2. Here, pre-emptive is already disabled, good!
-
-#         # ('lshift d, F d, F u, lshift u', 'LSHIFT d, F d, F u, LSHIFT u'),
-#         # # double modifier
-
-#         # ('lshift d, F d, lshift u, F u', 'LSHIFT d, F d, LSHIFT u, F u'),
-#         # # double modifier, sticky fingers
-
-#         # ('lshift d, F d, J d, J u, F u, lshift u', 'LSHIFT d, RSHIFT d, RSHIFT u, J d, J u, LSHIFT u'),
-#         # # double modifier, with another key, regular
-
-#         # ('lshift d, F d, J d, lshift u, F u, J u', 'LSHIFT d, RSHIFT d, RSHIFT u, J d, J u, LSHIFT u'),
-#         # # double modifier, with another key, regular
-#         # # TODO: double check, this one does not look right, but first need to check simpler cases
-
-#         ('A d, space d, A u, B d, B u, space u', 'A d, A u, LCTRL d, B d, B u, LCTRL u'),
-#         # regular key sandwhich, NOT pre-emptive
-#         ]
-# prog_arguments = ['-c', 'config_testing.yaml']
-# test_dualkeys(prog_arguments, test_sequences)
-
-# Not pre-emptive
 test_sequences = [
+        ('A d, A u', 'A d, A u'),
+        # regular key
+
+        ('space d, A d, A u, Space u', 'lctrl d, A d, A u, lctrl u'),
+        # standard space -> ctrl
+
         ('space d, A d, Space u, A u', 'LCTRL d, LCTRL u, SPACE d, A d, SPACE u, A u'),
         # sticky finger space -> ctrl
 
-        # ('A d, space d, A u, B d, B u, space u', 'A d, A u, LCTRL d, B d, B u, LCTRL u'),
-        # # regular key sandwhich, NOT pre-emptive
+        ('f d, space d, A d, A u, space u, f u', 'LSHIFT d, LCTRL d, A d, A u, LCTRL u, LSHIFT u'),
+        # standard space -> ctrl, f -> shift
 
-        # ('lshift d, space d, lshift u, B d, B u, space u', 'LSHIFT d, LSHIFT u, LCTRL d, B d, B u, LCTRL u'),
-        # # regular modifier key, sandwich
+        ('f d, space d, A d, A u, f u, space u', 'LSHIFT d, LCTRL d, A d, A u, LSHIFT u, LCTRL u'),
+        # standard space -> ctrl, f -> shift, reverse lifting
 
-        # ('lshift d, space d, lshift u, space u', 'LSHIFT d, LSHIFT u, LCTRL d, B d, B u, LCTRL u'),
-        # # regular modifier key, sandwich
-        # # TODO: go back here when next is solved
+        ('lctrl d, lshift d, lctrl u, lshift u', 'LCTRL d, LSHIFT d, LCTRL u, LSHIFT u'),
+        # regular modifiers, n1
 
-        # ('A d, space d, A u, space u', 'LSHIFT d, LSHIFT u, LCTRL d, B d, B u, LCTRL u'),
-        # # regular modifier key, sandwich
+        ('lctrl d, lshift d, lshift u, lctrl u', 'LCTRL d, LSHIFT d, LSHIFT u, LCTRL u'),
+        # regular modifiers, n2. Here, pre-emptive is already disabled, good!
 
-        # ('lshift d, space d, A d, lshift u, space u, A u', 'LSHIFT d, LSHIFT u, LCTRL d, B d, B u, LCTRL u'),
-        # # regular modifier key, sandwich
+        ('lshift d, F d, F u, lshift u', 'LSHIFT d, F d, F u, LSHIFT u'),
+        # double modifier
+
+        ('lshift d, F d, lshift u, F u', 'LSHIFT d, LSHIFT u, LSHIFT d, F d, LSHIFT u, F u'),
+        # double modifier, sticky fingers
+
+        ('lshift d, F d, J d, J u, F u, lshift u', 'LSHIFT d, RSHIFT d, RSHIFT u, J d, J u, LSHIFT u'),
+        # double modifier, with another key, regular
+
+        ('lshift d, F d, J d, lshift u, F u, J u', 'LSHIFT d, RSHIFT d, LSHIFT u, RSHIFT u, LSHIFT d, F d, RSHIFT d, LSHIFT u, RSHIFT u, LSHIFT d, J d, LSHIFT u, F u, J u'),
+        # double modifier, with another key, regular
+
+        ('A d, space d, A u, B d, B u, space u', 'A d, LCTRL d, A u, B d, B u, LCTRL u'),
+        # regular key sandwhich, NOT pre-emptive
+
+        ('space d, A d, A u, Space u', 'lctrl d, A d, A u, lctrl u'),
+        # standard space -> ctrl
+
+        ('space d, A d, Space u, A u', 'LCTRL d, LCTRL u, SPACE d, A d, SPACE u, A u'),
+        # sticky finger space -> ctrl
+
+        ('A d, space d, A u, B d, B u, space u', 'A d, LCTRL d, A u, B d, B u, LCTRL u'),
+        # regular key sandwhich, NOT pre-emptive
+
+        ('lshift d, space d, lshift u, B d, B u, space u', 'LSHIFT d, LCTRL d, LSHIFT u, B d, B u, LCTRL u'),
+        # regular modifier key, sandwich
+
+        ('lshift d, space d, lshift u, space u', 'LSHIFT d, LCTRL d, LSHIFT u, LCTRL u, LSHIFT d, SPACE d, LSHIFT u, SPACE u'),
+        # regular modifier key, sandwich
+
+        ('A d, space d, A u, space u', 'A d, LCTRL d, LCTRL u, SPACE d, A u, SPACE u'),
+        # ?
+
+        ('lshift d, space d, A d, lshift u, space u, A u', 'LSHIFT d, LCTRL d, LSHIFT u, LCTRL u, LSHIFT d, SPACE d, A d, LSHIFT u, SPACE u, A u'),
+        # regular modifier key, sandwich
+
+        ('space d, F d, B d, B u, F u, space u', 'LCTRL d, LSHIFT d, B d, B u, LSHIFT u, LCTRL u'),
+        # double modifier key
+
+        ('space d, F d, B d, A d, B u, A u, space u, f u', 'LCTRL d, LSHIFT d, B d, A d, B u, A u, LCTRL u, LSHIFT u'),
+        # double modifier key, twisted 1
+
+        ('space d, F d, B d, A d, J d, B u, A u, space u, f u, j u', 'LCTRL d, LSHIFT d, RSHIFT d, RSHIFT u, B d, A d, RSHIFT d, LCTRL u, LSHIFT u, RSHIFT u, LCTRL d, LSHIFT d, J d, B u, A u, LCTRL u, LSHIFT u, J u'),
+        # double modifier key, twisted 2
+
+        ('ralt d, ralt u', 'RALT d, RALT u, ENTER d, ENTER u'),
+        # down trigger
+
+        ('ralt d, A d, A u, ralt u', 'RALT d, A d, A u, RALT u'),
+        # down trigger
+
+        ('ralt d, A d, ralt u, A u', 'RALT d, A d, RALT u, A u'),
+        # down trigger
+
+        ('space d, f d, ralt d, j d, f u, j u, space u, ralt u', 'LCTRL d, LSHIFT d, RALT d, RSHIFT d, LSHIFT u, RALT u, RSHIFT u, F d, RALT d, RSHIFT d, RSHIFT u, J d, F u, J u, LCTRL u, RALT u'),
+        # down trigger, mixed with twisted
+
         ]
 prog_arguments = ['-c', 'config_testing.yaml']
 test_dualkeys(prog_arguments, test_sequences)
+
+# # Not pre-emptive
+# test_sequences = [
+#         ('A d, A u', 'A d, A u'),
+#         # regular key
+
+#         ('space d, A d, A u, Space u', 'lctrl d, A d, A u, lctrl u'),
+#         # standard space -> ctrl
+
+#         ('space d, A d, Space u, A u', 'SPACE d, A d, SPACE u, A u'),
+#         # sticky finger space -> ctrl
+
+#         ('A d, space d, A u, B d, B u, space u', 'A d, LCTRL d, A u, B d, B u, LCTRL u'),
+#         # regular key sandwhich, NOT pre-emptive
+
+#         ('lshift d, space d, lshift u, B d, B u, space u', 'LSHIFT d, LCTRL d, LSHIFT u, B d, B u, LCTRL u'),
+#         # regular modifier key, sandwich
+
+#         ('lshift d, space d, lshift u, space u', 'LSHIFT d, SPACE d, LSHIFT u, SPACE u'),
+#         # regular modifier key, sandwich
+
+#         ('A d, space d, A u, space u', 'A d, SPACE d, A u, SPACE u'),
+#         # ?
+
+#         ('lshift d, space d, A d, lshift u, space u, A u', 'LSHIFT d, SPACE d, A d, LSHIFT u, SPACE u, A u'),
+#         # regular modifier key, sandwich
+
+#         ('space d, F d, B d, B u, F u, space u', 'LCTRL d, LSHIFT d, B d, B u, LSHIFT u, LCTRL u'),
+#         # double modifier key
+
+#         ('space d, F d, B d, A d, B u, A u, space u, f u', 'LCTRL d, LSHIFT d, B d, A d, B u, A u, LCTRL u, LSHIFT u'),
+#         # double modifier key, twisted 1
+
+#         ('space d, F d, B d, A d, J d, B u, A u, space u, f u, j u', 'LCTRL d, LSHIFT d, B d, A d, J d, B u, A u, LCTRL u, LSHIFT u, J u'),
+#         # double modifier key, twisted 2
+
+#         ('ralt d, ralt u', 'ENTER d, ENTER u'),
+#         # down trigger
+
+#         ('ralt d, A d, A u, ralt u', 'RALT d, A d, A u, RALT u'),
+#         # down trigger
+
+#         ('ralt d, A d, ralt u, A u', 'RALT d, A d, RALT u, A u'),
+#         # down trigger
+
+#         ('space d, f d, ralt d, j d, f u, j u, space u, ralt u', 'LCTRL d, F d, RALT d, J d, F u, J u, LCTRL u, RALT u'),
+#         # down trigger, mixed with twisted
+#         ]
+# prog_arguments = ['-c', 'config_testing.yaml']
+# test_dualkeys(prog_arguments, test_sequences)
