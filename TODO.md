@@ -1,5 +1,15 @@
 # TODO
+## Refactoring
+- get rid of global DEBUG, TIMING
+- Introduce and refactor my asyncio loop thread class from testing to replace the scattered logic throughout the program
+  - Need to add the shutdown signaling
+- Collect main states into object
+- Get rid of device lock in `event_worker`
+- Suss out what variables need a lock for the udev monitor
+	- in particular, probably want to get rid of the remove event because if we are listening to something, it will throw an exception once removed. But could keep it and test it I guess.
+
 ## A
+- Re-structure to interpret dual keys as general rules of key substitutions instead of just dual keys. This is hard, but would allow easy substitutions such as Ctrl-Tab/Alt-Tab swap if I change Ctrl and Alt.
 - Think about resolving something that is like `shift d, space d, shift u, space u` to `shift d, space d, shift u, space u` instead of `shift d, shift u, space d, space u` (this is the way it is now). This would require _resolving_ on regular key up.
 	- On top of this, behavior is different for pre-emptive: there, shift is only released after the keys.
 	- To address this, should _not_ include the up key action in the resolve, only resolve until the first other dual key
@@ -19,7 +29,6 @@
 - Change command line parameters to allow listening to specific devices.
 - If the repeat bug I used to encounter is _not_ due to some logic bug, but somehow due to losing events, consider a timeout based mechanism checking if there is still a key-repeat being sent for all keys that are down. If not, raise them.
 - Make resolve and related routines local to some class, will make reading (slightly) easier.
-- Re-structure to interpret dual keys as general rules of key substitutions instead of just dual keys. This is hard, but would allow easy substitutions such as Ctrl-Tab/Alt-Tab swap if I change Ctrl and Alt.
 
 ## Done
 - Increase time-out for auto-repeat
