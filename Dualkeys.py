@@ -4,4 +4,5 @@ from dualkeys import Dualkeys
 import sys
 
 if __name__ == '__main__':
-    Dualkeys.main()
+    main_obj = Dualkeys.Main()
+    main_obj.main()

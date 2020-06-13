@@ -7,6 +7,9 @@
 - Get rid of device lock in `event_worker`
 - Suss out what variables need a lock for the udev monitor
 	- in particular, probably want to get rid of the remove event because if we are listening to something, it will throw an exception once removed. But could keep it and test it I guess.
++ Replace all DEBUG with `logging.debug`
+- Make all threads shut down
+  + event_pusher
 
 ## A
 - Re-structure to interpret dual keys as general rules of key substitutions instead of just dual keys. This is hard, but would allow easy substitutions such as Ctrl-Tab/Alt-Tab swap if I change Ctrl and Alt.

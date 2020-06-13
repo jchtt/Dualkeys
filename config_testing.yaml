@@ -19,7 +19,7 @@ key: [
     "(10, 10, 100)", # 9 to ralt
     "(100, 28, 100, True)", # ralt to enter
     ]
-pre-emptive-mods: [42, 54, 56, 100, 29, 97] # lshift, rshift, lalt, ralt, TODO: lctrl, rctrl
+pre-emptive-mods: [42, 54, 56, 100, 29, 97] # lshift, rshift, lalt, ralt, lctrl, rctrl
 repeat-timeout: 200
 repeat-keys: [33, 36, 57, 5, 10, 100]
 idle-timeout: 800
