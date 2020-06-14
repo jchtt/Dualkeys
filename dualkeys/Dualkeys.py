@@ -17,7 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import configargparse
+import configargparse as argparse
+# import argparse
 from ast import literal_eval
 import evdev
 import queue
@@ -36,6 +37,13 @@ from .observer import ObserverThreadWrapper
 # handler.setFormatter(formatter)
 # logging.addHandler(handler)
 # datefmt="%H:%M:%S",
+
+def parse_multi_key(s):
+    t = tuple(map(int, s.split(",")))
+    if len(t) != 3:
+        raise argparse.ArgumentTypeException(
+            "Dualkeys must consist of three keycodes, like (59, 59, 27)")
+    return t
 
 # Main program
 class Main():
@@ -108,19 +116,22 @@ class Main():
         Parse command line arguments with argparse.
         """
 
-        parser = configargparse.ArgumentParser(description = "Dualkeys: Add dual roles for keys via evdev and uinput",
-                config_file_parser_class = configargparse.YAMLConfigFileParser
+        # parser = argparse.ArgumentParser(description = "Dualkeys: Add dual roles for keys via evdev and uinput")
+        parser = argparse.ArgumentParser(description = "Dualkeys: Add dual roles for keys via evdev and uinput",
+                config_file_parser_class = argparse.YAMLConfigFileParser
                 )
         parser.add_argument('-c', '--config', is_config_file=True)
         group = parser.add_mutually_exclusive_group()
-        group.add_argument('-k', '--key', type=literal_eval, action='append',
-                help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
-                "actual key on the keyboard, the single press key, and the modifier key"),
-                metavar = ('actual_key', 'single_key', 'mod_key'))
-        # group.add_argument('-k', '--key', type=int, nargs=3, action='append',
+        # group.add_argument('-k', '--key', type=literal_eval, action='append',
         #         help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
         #         "actual key on the keyboard, the single press key, and the modifier key"),
         #         metavar = ('actual_key', 'single_key', 'mod_key'))
+        group.add_argument('-k', '--key', type=parse_multi_key, action='append',
+                help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
+                "actual key on the keyboard, the single press key, and the modifier key"),
+                # )
+                metavar = '(actual_key,single_key,mod_key)')
+
         group.add_argument('-p', '--print', action='store_true',
                 help = "Disable dual-role keys, just print back scancodes")
         group.add_argument('-l', '--list', action='store_true',
@@ -129,28 +140,29 @@ class Main():
                 help = "Print debug information")
         parser.add_argument('-t', '--timing', action='store_true',
                 help = "Print timing results")
-        parser.add_argument('-pem', '--pre-emptive-mods', nargs='+', type=int,
+        parser.add_argument('-pem', '--pre-emptive-mods', nargs='*', type=int,
                 default = [],
                 help = ("Scancodes of modifier keys to be taken into account"
                     "in pre-emptive mode"))
-        parser.add_argument('-ks', '--kill-switch', nargs='+', type=int, default = [119],
+        parser.add_argument('-ks', '--kill-switch', nargs='*', type=int, default = [119],
                 help = "Scancodes of keys to immediately kill Dualkeys")
-        parser.add_argument('-ak', '--angry-keys', nargs='+', type=int, default = [],
+        parser.add_argument('-ak', '--angry-keys', nargs='*', type=int, default = [],
                 help = "Scancodes of keys that will save the last few input and output strokes, see --angry-key-history")
         parser.add_argument('-akh', '--angry-key-history', type=int, default = 1000,
                 help = "Length of angry key history")
         parser.add_argument('-akp', '--angry-key-prefix', nargs = '?', type=str, default = "./log",
                 help = "Prefix for key history")
-        parser.add_argument('-i', '--ignore', nargs = '+', type=int, default = [],
+        parser.add_argument('-i', '--ignore', nargs = '*', type=int, default = [],
                 help = "Scancodes to ignore")
         parser.add_argument('-rt', '--repeat-timeout', type = int,
                 help = "Time frame during which a double press of a modifier key is interpreted as initiating key repeat.")
-        parser.add_argument('-rk', '--repeat-keys', nargs = '+', type = int,
+        parser.add_argument('-rk', '--repeat-keys', nargs = '*', type = int,
                 help = "Keys to resolve to single keys if pressed again less than repeat-timeout after the last release.")
         parser.add_argument('-it', '--idle-timeout', type = int,
                 help = "Timeout to resolve repeat-keys as modifiers")
-        parser.add_argument('-ik', '--idle-keys', nargs = '+', type = int,
+        parser.add_argument('-ik', '--idle-keys', nargs = '*', type = int,
                 help = "Keys to resolve to modifiers after a repeat-timeout milliseconds.")
+
         # parser.add_argument('-pex', '--pre-emptive-exclude', nargs='+', type=int,
         #         default = [], action='append',
         #         help = ("Scancodes of modifier keys to be taken into account"

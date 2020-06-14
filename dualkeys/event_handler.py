@@ -368,20 +368,20 @@ class EventHandlerThread(threading.Thread):
         self.resolve(key_event, pre_emptive, back_link, from_down = False)
         del self.back_links[cur_key]
 
-    def handle_key_repeat(state_obj, key_event, pre_emptive):
+    def handle_key_repeat(self, key_event, pre_emptive):
         # Any key sends repeat
 
         cur_key = key_event.scancode
 
-        back_link = state_obj.back_links.get(cur_key)
+        back_link = self.back_links.get(cur_key)
         if back_link is not None \
-                and cur_key in state_obj.idle_keys \
-                and (time.time() - back_link.content.time_pressed > state_obj.idle_timeout) \
+                and cur_key in self.idle_keys \
+                and (time.time() - back_link.content.time_pressed > self.idle_timeout) \
                 and back_link.content.resolution_type == ResolutionType.UNRESOLVED:
             back_link.content.resolution_type = ResolutionType.DUAL_MOD
             # SOMEDAY: not clear if we want from_down here or not
             logging.debug(f'Auto repeat triggered idle resolution on {cur_key}')
-            resolve(state_obj, key_event, pre_emptive, to_node = back_link, from_down = False)
+            self.resolve(key_event, pre_emptive, to_node = back_link, from_down = False)
 
     @staticmethod
     def invert_keystate(keystate):
@@ -509,9 +509,12 @@ class EventHandlerThread(threading.Thread):
 
                 try:
                     if self.do_print:
-                        ret = self.print_event(event, self.main_instance.event_pusher.listen_devices[device.path].grab)
+                        ret = self.print_event(event,
+                                self.main_instance.event_pusher.listen_devices[device.path].grab)
                     else:
-                        ret = self.handle_event(event, device.active_keys(), pre_emptive = self.do_pre_emptive)
+                        ret = self.handle_event(event, device.active_keys(),
+                                pre_emptive = self.do_pre_emptive,
+                                grabbed = self.main_instance.event_pusher.listen_devices[device.path].grab)
                 except IOError as e:
                     # Check if the device got removed, if so, get rid of it
                     if e.errno != errno.ENODEV: raise
