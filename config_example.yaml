@@ -1,0 +1,13 @@
+kill-switch: 119
+angry-keys: 99
+key: [
+    "100, 28, 100", # ralt -> ralt/enter
+    "56, 15, 100", # lalt -> ralt/tab
+    "57, 57, 29", # space -> lctrl
+    ]
+pre-emptive-mods: [29, 97, 42, 54, 56, 100] # lctrl, rctrl, lshift, rshift, lalt, ralt
+ignore: [325, 330]
+repeat-timeout: 200
+repeat-keys: []
+idle-timeout: 800
+idle-keys: []
