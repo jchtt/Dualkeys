@@ -60,6 +60,7 @@ class EventHandlerThread(threading.Thread):
         self.pre_emptive_dict = {}
         self.back_links = {}
         self.last_pressed = {}
+        self.last_pressed_key = None
 
         self.error_queue = self.main_instance.error_queue
 
@@ -236,6 +237,7 @@ class EventHandlerThread(threading.Thread):
         # otherwise, put it in the queue and resolve non-tf keys
 
         to_push = key_event.scancode
+        self.last_pressed_key = to_push
         # TODO: figure out why I handled pre_emptive separately here
         if not self.event_list.isempty(): #or to_push in self.pre_emptive_mods:
             # Regular key, but not sure what to do, so put it in the list
@@ -278,6 +280,8 @@ class EventHandlerThread(threading.Thread):
 
         if self.handle_repeat \
                 and cur_key in self.repeat_keys:
+                # and self.last_pressed_key is not None \
+                # and cur_key == self.last_pressed_key \
             last_pressed = self.last_pressed.get(cur_key)
             if last_pressed is not None \
                     and time.time() - last_pressed < self.repeat_timeout:
@@ -290,8 +294,9 @@ class EventHandlerThread(threading.Thread):
                 # in the first place.
                 #
                 # Also, the early return here is ugly.
-                self.resolve(key_event, pre_emptive, node, from_down = False)
+                self.resolve(key_event, pre_emptive, node, from_down = True)
                 self.last_pressed[cur_key] = time.time()
+                self.last_pressed_key = cur_key
                 return
 
         if pre_emptive:
@@ -310,6 +315,7 @@ class EventHandlerThread(threading.Thread):
 
         # Save when pressed
         self.last_pressed[cur_key] = time.time()
+        self.last_pressed_key = cur_key
 
     def handle_regular_key_up(self, key_event, pre_emptive):
         # Regular key goes up
@@ -392,17 +398,17 @@ class EventHandlerThread(threading.Thread):
 
     def lift_following_modifiers(self, pre_emptive, node):
 
-        logging.debug("Lifting modifiers: ", end="")
+        logging.debug("Lifting modifiers:")
 
         while node is not None:
             if node.content.pre_emptive_pressed:
                 if node.content.scancode in self.registered_keys:
                     to_lift = self.registered_keys[node.content.scancode].mod_key
                     self.send_key(to_lift, self.__class__.invert_keystate(node.content.keystate))
-                    logging.debug("{}, ".format(codes_to_keys(to_lift)), end = "")
+                    logging.debug("{}, ".format(codes_to_keys(to_lift)))
                 elif node.content.scancode in self.pre_emptive_mods:
                     self.send_key(node.content.scancode, self.__class__.invert_keystate(node.content.keystate))
-                    logging.debug("{}, ".format(node.content.scancode), end = "")
+                    logging.debug("{}, ".format(node.content.scancode))
             node = node.next
 
      # logging.debug()
@@ -471,12 +477,12 @@ class EventHandlerThread(threading.Thread):
                 if (node.content.resolution_type == ResolutionType.UNRESOLVED or \
                         node.content.resolution_type == ResolutionType.DUAL_MOD) \
                         and node.content.pre_emptive_pressed:
-                    logging.debug('Pre_empt key ', end = '')
+                    logging.debug('Pre_empt key ')
                     self.send_key(self.registered_keys[node.content.scancode].mod_key, node.content.keystate)
                 elif node.content.resolution_type == ResolutionType.REGULAR and \
                         node.content.scancode in self.pre_emptive_mods and \
                         node.content.pre_emptive_pressed:
-                    logging.debug('Pre_empt key ', end = '')
+                    logging.debug('Pre_empt key ')
                     self.send_key(node.content.scancode, node.content.keystate)
 
             node = node.next
