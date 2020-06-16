@@ -117,6 +117,19 @@ class EventPusherThread(AsyncLoopThread):
         else:
             return HandleType.IGNORE
 
+    async def clear_on_timeout(self, device, key_event, timeout):
+        key_event_up = device.last_pressed_up.get(key_event.scancode)
+        if key_event_up is not None and key_event_up.event.timestamp() > key_event.timestamp():
+            return
+        key_event_repeat = device.last_pressed_repeat.get(key_event.scancode)
+        if key_event_repeat is not None and key_event_repeat.event.timestamp() > key_event.timestamp():
+            return
+        new_event = evdev.KeyEvent(key_event.event)
+        new_event.keystate = new_event.key_up
+
+        self.event_queue.put((device, new_event))
+
+
     async def put_events(self, device):
         """
         Coroutine for putting events in the event queue.
@@ -125,7 +138,16 @@ class EventPusherThread(AsyncLoopThread):
         try:
             async for event in device.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
-                    self.event_queue.put((device, event))
+                    key_event = evdev.util.categorize(event)
+                    if key_event.keystate == 0:
+                        self.last_pressed_up = key_event
+                    elif key_event.keystate == 1:
+                        self.loop.create_task(self.clear_on_timeout(device = device, key_event, 0.01))
+                    elif key_event.keystate == 2:
+                        self.last_pressed_repeat = key_event
+                        # self.loop.create_task(self.clear_on_timeout(key_event, 0.01))
+
+                    self.event_queue.put((device, key_event))
                     # print("Done putting")
         except (IOError, OSError) as e:
             # print("IOError")

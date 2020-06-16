@@ -29,6 +29,15 @@ class DeviceWrapper():
         self.grab = grab
         self.input_device = input_device
         self.future = future
+        # self.last_pressed_down = {}
+        self.last_pressed_repeat = {}
+        self.last_pressed_up = {}
+
+    # def register_down(self, scancode):
+    #     self.last_pressed_down[scancode] = time.time()
+
+    # def register_repeat(self, scancode):
+    #     self.last_pressed_repeat[scancode] = time.time()
 
 HandleType = Enum("HandleType", [
     "IGNORE",

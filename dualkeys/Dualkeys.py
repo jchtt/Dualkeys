@@ -70,7 +70,7 @@ class Main():
         """
 
         print('Listing devices:')
-        for device in all_devices:
+        for device in self.all_devices:
             print("filename = {}, name = {}, physical address = {}".format(device.path, device.name, device.phys))
         return
 

@@ -136,20 +136,18 @@ class EventHandlerThread(threading.Thread):
 
     ## New
 
-    def handle_event(self, event, active_keys, grabbed = True, pre_emptive = False):
+    def handle_event(self, key_event, active_keys, grabbed = True, pre_emptive = False):
         """
         Handle the incoming key event. Main callback function.
         """
 
 
-        # Only act on key presses
-        if event.type != evdev.ecodes.EV_KEY:
-            return True
+        # # Only act on key presses
+        # if event.type != evdev.ecodes.EV_KEY:
+        #     return True
 
         if self.do_timing:
             cur_time = time.time()
-
-        key_event = evdev.util.categorize(event)
 
         # Don't act on weird keys
         if key_event.scancode in self.ignore_keys:
