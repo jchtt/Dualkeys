@@ -118,10 +118,11 @@ class EventPusherThread(AsyncLoopThread):
             return HandleType.IGNORE
 
     async def clear_on_timeout(self, device, key_event, timeout):
-        key_event_up = device.last_pressed_up.get(key_event.scancode)
+        device_wrapper = self.listen_devices[device.path]
+        key_event_up = device_wrapper.last_pressed_up.get(key_event.scancode)
         if key_event_up is not None and key_event_up.event.timestamp() > key_event.timestamp():
             return
-        key_event_repeat = device.last_pressed_repeat.get(key_event.scancode)
+        key_event_repeat = device_wrapper.last_pressed_repeat.get(key_event.scancode)
         if key_event_repeat is not None and key_event_repeat.event.timestamp() > key_event.timestamp():
             return
         new_event = evdev.KeyEvent(key_event.event)
@@ -135,7 +136,6 @@ class EventPusherThread(AsyncLoopThread):
         Coroutine for putting events in the event queue.
         """
 
-        device = device_wrapper.input_device
         try:
             async for event in device.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
@@ -143,7 +143,7 @@ class EventPusherThread(AsyncLoopThread):
                     if key_event.keystate == 0:
                         self.last_pressed_up = key_event
                     elif key_event.keystate == 1:
-                        self.loop.create_task(self.clear_on_timeout(device = device_wrapper, key_event = key_event, timeout = 0.01))
+                        self.loop.create_task(self.clear_on_timeout(device = device, key_event = key_event, timeout = 0.01))
                     elif key_event.keystate == 2:
                         self.last_pressed_repeat = key_event
                         # self.loop.create_task(self.clear_on_timeout(key_event, 0.01))
@@ -179,9 +179,7 @@ class EventPusherThread(AsyncLoopThread):
         grab = handle_type == HandleType.GRAB
         if grab:
             device.grab()
-        device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)
-        self.listen_devices[device.path] = device_wrapper
-        future = asyncio.run_coroutine_threadsafe(self.put_events(device_wrapper), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.put_events(device), self.loop)
         def future_callback_error_logger(future):
             try:
                 future.result()
@@ -196,6 +194,8 @@ class EventPusherThread(AsyncLoopThread):
                 self.shutdown_flag.set()
                 self.main_instance.error_queue.put(e)
         future.add_done_callback(future_callback_error_logger)
+        device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)
+        self.listen_devices[device.path] = device_wrapper
 
         # time.sleep(0.2)
         # device.repeat = evdev.device.KbdInfo(300, 600000)
