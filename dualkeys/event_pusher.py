@@ -131,7 +131,7 @@ class EventPusherThread(AsyncLoopThread):
         self.event_queue.put((device, new_event))
 
 
-    async def put_events(self, device_wrapper):
+    async def put_events(self, device):
         """
         Coroutine for putting events in the event queue.
         """
