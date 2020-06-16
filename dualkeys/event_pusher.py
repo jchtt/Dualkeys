@@ -130,11 +130,12 @@ class EventPusherThread(AsyncLoopThread):
         self.event_queue.put((device, new_event))
 
 
-    async def put_events(self, device):
+    async def put_events(self, device_wrapper):
         """
         Coroutine for putting events in the event queue.
         """
 
+        device = device_wrapper.input_device
         try:
             async for event in device.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
@@ -142,7 +143,7 @@ class EventPusherThread(AsyncLoopThread):
                     if key_event.keystate == 0:
                         self.last_pressed_up = key_event
                     elif key_event.keystate == 1:
-                        self.loop.create_task(self.clear_on_timeout(device = device, key_event = key_event, timeout = 0.01))
+                        self.loop.create_task(self.clear_on_timeout(device = device_wrapper, key_event = key_event, timeout = 0.01))
                     elif key_event.keystate == 2:
                         self.last_pressed_repeat = key_event
                         # self.loop.create_task(self.clear_on_timeout(key_event, 0.01))
@@ -178,7 +179,9 @@ class EventPusherThread(AsyncLoopThread):
         grab = handle_type == HandleType.GRAB
         if grab:
             device.grab()
-        future = asyncio.run_coroutine_threadsafe(self.put_events(device), self.loop)
+        device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)
+        self.listen_devices[device.path] = device_wrapper
+        future = asyncio.run_coroutine_threadsafe(self.put_events(device_wrapper), self.loop)
         def future_callback_error_logger(future):
             try:
                 future.result()
@@ -194,8 +197,6 @@ class EventPusherThread(AsyncLoopThread):
                 self.main_instance.error_queue.put(e)
         future.add_done_callback(future_callback_error_logger)
 
-        device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)
-        self.listen_devices[device.path] = device_wrapper
         # time.sleep(0.2)
         # device.repeat = evdev.device.KbdInfo(300, 600000)
         # print("Device {}, repeat = {}".format(device, device.repeat))
