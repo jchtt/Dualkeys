@@ -142,7 +142,7 @@ class EventPusherThread(AsyncLoopThread):
                     if key_event.keystate == 0:
                         self.last_pressed_up = key_event
                     elif key_event.keystate == 1:
-                        self.loop.create_task(self.clear_on_timeout(device = device, key_event, 0.01))
+                        self.loop.create_task(self.clear_on_timeout(device = device, key_event = key_event, timeout = 0.01))
                     elif key_event.keystate == 2:
                         self.last_pressed_repeat = key_event
                         # self.loop.create_task(self.clear_on_timeout(key_event, 0.01))
