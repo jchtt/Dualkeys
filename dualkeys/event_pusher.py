@@ -88,6 +88,8 @@ class EventPusherThread(AsyncLoopThread):
         self.do_timing = main_instance.args.timing
         self.listen_devices = {}
         self.main_instance = main_instance
+        self.keydown_timeout = main_instance.args.clear_timeout_down/1000
+        self.keyrepeat_timeout = main_instance.args.clear_timeout_repeat/1000
 
     def cleanup(self):
         for (fn, dev) in self.listen_devices.items():
@@ -143,10 +145,13 @@ class EventPusherThread(AsyncLoopThread):
                     if key_event.keystate == 0:
                         self.last_pressed_up = key_event
                     elif key_event.keystate == 1:
-                        self.loop.create_task(self.clear_on_timeout(device = device, key_event = key_event, timeout = 0.01))
+                        pass
+                        # self.loop.create_task(self.clear_on_timeout(device = device,
+                        # key_event = key_event, timeout = self.keydown_timeout))
                     elif key_event.keystate == 2:
                         self.last_pressed_repeat = key_event
-                        # self.loop.create_task(self.clear_on_timeout(key_event, 0.01))
+                        self.loop.create_task(self.clear_on_timeout(device = device,
+                            key_event = key_event, timeout = self.keyrepeat_timeout))
 
                     self.event_queue.put((device, key_event))
                     # print("Done putting")

@@ -162,6 +162,14 @@ class Main():
                 help = "Timeout to resolve repeat-keys as modifiers")
         parser.add_argument('-ik', '--idle-keys', nargs = '*', type = int,
                 help = "Keys to resolve to modifiers after a repeat-timeout milliseconds.")
+        parser.add_argument('--clear-timeout-down', type = int,
+                default = 300,
+                help = "Timeout after keydown event in ms. After this timeout, if no repeat"
+                " event occurred, the key will be lifted.")
+        parser.add_argument('--clear-timeout-repeat', type = int,
+                default = 100,
+                help = "Timeout after keyrepeat event in ms. After this timeout, if no repeat"
+                " event occurred, the key will be lifted.")
 
         # parser.add_argument('-pex', '--pre-emptive-exclude', nargs='+', type=int,
         #         default = [], action='append',
