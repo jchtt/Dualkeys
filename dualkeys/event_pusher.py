@@ -7,6 +7,7 @@ import concurrent
 
 from .types import *
 
+
 class AsyncLoopThread(threading.Thread):
     def __init__(self,
             # group = None,
@@ -97,6 +98,20 @@ class EventPusherThread(AsyncLoopThread):
                 dev.input_device.ungrab()
                 dev.input_device.close()
 
+    def future_callback_error_logger(future):
+        try:
+            future.result()
+        except concurrent.futures._base.CancelledError:
+            # logging.debug("Future got cancelled")
+            pass
+        except OSError as e:
+            # print("OSError")
+            raise e
+        except Exception as e:
+            logging.exception(e)
+            self.shutdown_flag.set()
+            self.main_instance.error_queue.put(e)
+
     @staticmethod
     def get_handle_type(device):
         """
@@ -119,8 +134,8 @@ class EventPusherThread(AsyncLoopThread):
         else:
             return HandleType.IGNORE
 
-    async def clear_on_timeout(self, device, key_event, timeout):
-        device_wrapper = self.listen_devices[device.path]
+    async def clear_on_timeout(self, device_wrapper, key_event, timeout):
+        await asyncio.sleep(timeout)
         key_event_up = device_wrapper.last_pressed_up.get(key_event.scancode)
         if key_event_up is not None and key_event_up.event.timestamp() > key_event.timestamp():
             return
@@ -139,19 +154,22 @@ class EventPusherThread(AsyncLoopThread):
         """
 
         try:
+            device_wrapper = self.listen_devices[device.path]
             async for event in device.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
                     key_event = evdev.util.categorize(event)
                     if key_event.keystate == 0:
-                        self.last_pressed_up = key_event
+                        device_wrapper.last_pressed_up[key_event.scancode] = key_event
                     elif key_event.keystate == 1:
-                        pass
-                        # self.loop.create_task(self.clear_on_timeout(device = device,
-                        # key_event = key_event, timeout = self.keydown_timeout))
+                        # pass
+                        future = self.loop.create_task(self.clear_on_timeout(device_wrapper = device_wrapper,
+                            key_event = key_event, timeout = self.keydown_timeout))
+                        future.add_done_callback(future_callback_error_logger)
                     elif key_event.keystate == 2:
-                        self.last_pressed_repeat = key_event
-                        self.loop.create_task(self.clear_on_timeout(device = device,
+                        device_wrapper.last_pressed_repeat[key_event.scancode] = key_event
+                        future = self.loop.create_task(self.clear_on_timeout(device_wrapper = device_wrapper,
                             key_event = key_event, timeout = self.keyrepeat_timeout))
+                        future.add_done_callback(future_callback_error_logger)
 
                     self.event_queue.put((device, key_event))
                     # print("Done putting")
@@ -185,19 +203,6 @@ class EventPusherThread(AsyncLoopThread):
         if grab:
             device.grab()
         future = asyncio.run_coroutine_threadsafe(self.put_events(device), self.loop)
-        def future_callback_error_logger(future):
-            try:
-                future.result()
-            except concurrent.futures._base.CancelledError:
-                # logging.debug("Future got cancelled")
-                pass
-            except OSError as e:
-                # print("OSError")
-                raise e
-            except Exception as e:
-                logging.exception(e)
-                self.shutdown_flag.set()
-                self.main_instance.error_queue.put(e)
         future.add_done_callback(future_callback_error_logger)
         device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)
         self.listen_devices[device.path] = device_wrapper

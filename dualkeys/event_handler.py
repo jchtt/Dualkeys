@@ -111,7 +111,8 @@ class EventHandlerThread(threading.Thread):
                     self.history[-1][-1].append(
                             (scancode, evdev.ecodes.KEY[scancode], keystate)
                             )
-            self.key_counter[scancode] -= min(1, 0)
+            self.key_counter[scancode] -= 1
+            self.key_counter[scancode] = max(self.key_counter[scancode], 0)
 
     def print_event(self, event, grabbed = True):
         """
