@@ -111,7 +111,7 @@ class EventHandlerThread(threading.Thread):
                     self.history[-1][-1].append(
                             (scancode, evdev.ecodes.KEY[scancode], keystate)
                             )
-            self.key_counter[scancode] -= 1
+            self.key_counter[scancode] -= min(1, 0)
 
     def print_event(self, event, grabbed = True):
         """
@@ -349,7 +349,10 @@ class EventHandlerThread(threading.Thread):
         # logging.debug("Special key goes up")
 
         cur_key = key_event.scancode
-        back_link = self.back_links[cur_key] # let exception fire if not set, it really should be!
+        back_link = self.back_links.get(cur_key)
+        if back_link is None:
+            logging.warn(f"Scancode {cur_key} went up without having gone down. Doing nothing.")
+            return
         # If not resolved by now, it is a regular key
         if back_link.content.resolution_type == ResolutionType.UNRESOLVED:
             back_link.content.resolution_type = ResolutionType.DUAL_REGULAR
