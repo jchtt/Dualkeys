@@ -24,6 +24,12 @@ from collections import deque
 class TerminationException(Exception):
     pass
 
+class TerminationExceptionError(Exception):
+    pass
+
+class HistoryException(Exception):
+    pass
+
 class DeviceWrapper():
     def __init__(self, grab = False, input_device = None, future = None):
         self.grab = grab
@@ -32,6 +38,7 @@ class DeviceWrapper():
         # self.last_pressed_down = {}
         self.last_pressed_repeat = {}
         self.last_pressed_up = {}
+        self.pressed_dict = {}
 
     # def register_down(self, scancode):
     #     self.last_pressed_down[scancode] = time.time()

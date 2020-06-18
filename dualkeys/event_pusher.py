@@ -90,13 +90,12 @@ class EventPusherThread(AsyncLoopThread):
         self.listen_devices = {}
         self.main_instance = main_instance
         self.keydown_timeout = main_instance.args.clear_timeout_down/1000
-        self.keyrepeat_timeout = main_instance.args.clear_timeout_repeat/1000
 
     def cleanup(self):
         for (fn, dev) in self.listen_devices.items():
-            if dev.grab:
-                dev.input_device.ungrab()
-                dev.input_device.close()
+            # if dev.grab:
+            #     dev.input_device.ungrab()
+            dev.input_device.close()
 
     def future_callback_error_logger(self, future):
         try:
@@ -135,19 +134,23 @@ class EventPusherThread(AsyncLoopThread):
             return HandleType.IGNORE
 
     async def clear_on_timeout(self, device_wrapper, key_event, timeout):
+        while key_event.scancode in device_wrapper.input_device.active_keys():
+            await asyncio.sleep(timeout)
+
         await asyncio.sleep(timeout)
         key_event_up = device_wrapper.last_pressed_up.get(key_event.scancode)
         if key_event_up is not None and key_event_up.event.timestamp() >= key_event.event.timestamp():
             # Above, it needs to be >= because repeat and up fire at the same epoch
             return
-        key_event_repeat = device_wrapper.last_pressed_repeat.get(key_event.scancode)
-        if key_event_repeat is not None and key_event_repeat.event.timestamp() > key_event.event.timestamp():
-            return
+        # key_event_repeat = device_wrapper.last_pressed_repeat.get(key_event.scancode)
+        # if key_event_repeat is not None and key_event_repeat.event.timestamp() > key_event.event.timestamp():
+        #     return
 
         logging.warn(f"Scancode {key_event.scancode} did not go up in time, lifting it.")
         new_event = evdev.KeyEvent(key_event.event)
         new_event.keystate = new_event.key_up
         self.event_queue.put((device_wrapper.input_device, new_event))
+        self.event_queue.put(HistoryException(f"{evdev.ecodes.KEY[key_event.scancode]} did not go up in time, lifting it."))
 
 
     async def put_events(self, device):
@@ -158,22 +161,38 @@ class EventPusherThread(AsyncLoopThread):
         try:
             device_wrapper = self.listen_devices[device.path]
             async for event in device.async_read_loop():
+                if event.type == evdev.ecodes.EV_SYN:
+                    # logging.info(str(event))
+                    cat_event = evdev.util.categorize(event)
+                    if str(cat_event).endswith("DROPPED"):
+                    # if True:
+                        logging.info(str(cat_event))
                 if event.type == evdev.ecodes.EV_KEY:
                     key_event = evdev.util.categorize(event)
+                    if key_event.scancode not in device_wrapper.pressed_dict:
+                        device_wrapper.pressed_dict[key_event.scancode] = 0
                     if key_event.keystate == 0:
                         device_wrapper.last_pressed_up[key_event.scancode] = key_event
+                        device_wrapper.pressed_dict[key_event.scancode] -= 1
                     elif key_event.keystate == 1:
                         # pass
                         future = self.loop.create_task(self.clear_on_timeout(device_wrapper = device_wrapper,
                             key_event = key_event, timeout = self.keydown_timeout))
                         future.add_done_callback(self.future_callback_error_logger)
+                        device_wrapper.pressed_dict[key_event.scancode] += 1
                     elif key_event.keystate == 2:
-                        device_wrapper.last_pressed_repeat[key_event.scancode] = key_event
-                        future = self.loop.create_task(self.clear_on_timeout(device_wrapper = device_wrapper,
-                            key_event = key_event, timeout = self.keyrepeat_timeout))
-                        future.add_done_callback(self.future_callback_error_logger)
+                        pass
+                    # elif key_event.keystate == 2:
+                    #     device_wrapper.last_pressed_repeat[key_event.scancode] = key_event
+                    #     future = self.loop.create_task(self.clear_on_timeout(device_wrapper = device_wrapper,
+                    #         key_event = key_event, timeout = self.keyrepeat_timeout))
+                    #     future.add_done_callback(self.future_callback_error_logger)
 
-                    self.event_queue.put((device, key_event))
+                    logging.info("[" + ",".join([f"({evdev.ecodes.KEY[k]}, {v})" \
+                            for k, v in device_wrapper.pressed_dict.items() \
+                            if v != 0 and k in evdev.ecodes.KEY]) + "]")
+                    await asyncio.sleep(2/1000)
+                    # self.event_queue.put((device, key_event))
                     # print("Done putting")
         except (IOError, OSError) as e:
             # print("IOError")
@@ -202,8 +221,8 @@ class EventPusherThread(AsyncLoopThread):
         if handle_type is None:
             handle_type = self.__class__.get_handle_type(device)
         grab = handle_type == HandleType.GRAB
-        if grab:
-            device.grab()
+        # if grab:
+        #     device.grab()
         future = asyncio.run_coroutine_threadsafe(self.put_events(device), self.loop)
         future.add_done_callback(self.future_callback_error_logger)
         device_wrapper = DeviceWrapper(grab = grab, input_device = device, future = future)

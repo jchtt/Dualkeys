@@ -152,6 +152,8 @@ class Main():
                 help = "Length of angry key history")
         parser.add_argument('-akp', '--angry-key-prefix', nargs = '?', type=str, default = "./log",
                 help = "Prefix for key history")
+        parser.add_argument('-akd', '--angry-key-directory', nargs = '?', type=str, default = "./log/",
+                help = "Prefix for key history")
         parser.add_argument('-i', '--ignore', nargs = '*', type=int, default = [],
                 help = "Scancodes to ignore")
         parser.add_argument('-rt', '--repeat-timeout', type = int,
@@ -165,10 +167,6 @@ class Main():
         parser.add_argument('--clear-timeout-down', type = int,
                 default = 500,
                 help = "Timeout after keydown event in ms. After this timeout, if no repeat"
-                " event occurred, the key will be lifted.")
-        parser.add_argument('--clear-timeout-repeat', type = int,
-                default = 100,
-                help = "Timeout after keyrepeat event in ms. After this timeout, if no repeat"
                 " event occurred, the key will be lifted.")
 
         # parser.add_argument('-pex', '--pre-emptive-exclude', nargs='+', type=int,

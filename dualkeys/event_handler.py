@@ -3,6 +3,7 @@ import time
 import threading
 import logging
 from collections import deque
+import os
 
 from .types import *
 
@@ -38,7 +39,7 @@ class EventHandlerThread(threading.Thread):
         self.idle_timeout = float(args.idle_timeout) / 1000 if self.handle_idle else None
         self.idle_keys = args.idle_keys
         self.angry_keys = args.angry_keys
-        self.angry_key_prefix = args.angry_key_prefix
+        self.angry_key_directory = args.angry_key_directory
         self.ignore_keys = args.ignore
 
         if len(self.angry_keys) > 0:
@@ -99,7 +100,7 @@ class EventHandlerThread(threading.Thread):
                 logging.debug(f'Pushed {scancode}, {evdev.ecodes.KEY[scancode]}')
                 if self.history is not None:
                     self.history[-1][-1].append(
-                            (scancode, evdev.ecodes.KEY[scancode], keystate)
+                            (evdev.ecodes.KEY[scancode], keystate)
                             )
             self.key_counter[scancode] += 1
         elif keystate == 0:
@@ -109,26 +110,26 @@ class EventHandlerThread(threading.Thread):
                 logging.debug(f'Lifted {scancode}, {evdev.ecodes.KEY[scancode]}')
                 if self.history is not None:
                     self.history[-1][-1].append(
-                            (scancode, evdev.ecodes.KEY[scancode], keystate)
+                            (evdev.ecodes.KEY[scancode], keystate)
                             )
             self.key_counter[scancode] -= 1
             self.key_counter[scancode] = max(self.key_counter[scancode], 0)
 
-    def print_event(self, event, grabbed = True):
+    def print_event(self, key_event, grabbed = True):
         """
         Alternative callback function that passes everything through,
         """
 
-        if event.type == evdev.ecodes.EV_KEY:
-            key_event = evdev.util.categorize(event)
-            # if key_event.keystate <= 1:
-            if True:
-                print('scancode = {}, keystate = {}, keycode = {}'.format(key_event.scancode, key_event.keystate, key_event.keycode))
-            if grabbed:
-                self.send_key(key_event.scancode, key_event.keystate)
-            if key_event.scancode in self.kill_switches:
-                logging.info("Kill switch pressed, shutting down")
-                self.error_queue.put(TerminationException())
+        # if event.type == evdev.ecodes.EV_KEY:
+        #     key_event = evdev.util.categorize(event)
+        # if key_event.keystate <= 1:
+        if True:
+            print('scancode = {}, keystate = {}, keycode = {}'.format(key_event.scancode, key_event.keystate, key_event.keycode))
+        if grabbed:
+            self.send_key(key_event.scancode, key_event.keystate)
+        if key_event.scancode in self.kill_switches:
+            logging.info("Kill switch pressed, shutting down")
+            self.error_queue.put(TerminationException())
         return True
 
     ##########################
@@ -136,6 +137,18 @@ class EventHandlerThread(threading.Thread):
     ##########################
 
     ## New
+
+    def save_history(self):
+        logging.info("Saving history")
+        today = datetime.datetime.now()
+        today_str_date = today.strftime('%Y-%m-%d')
+        today_str_time = today.strftime('%H-%M-%S')
+        savedir = os.path.join(self.angry_key_directory, today_str_date)
+        os.makedirs(savedir, exist_ok = True)
+        with open(os.path.join(savedir, today_str_time + '.txt'), 'w') as f:
+            f.write('\n'.join([', '.join([str(x) for x in elem])
+                for elem in self.history])) # TODO: nicer output, date stamp
+            # f.write(str(state_obj.history))
 
     def handle_event(self, key_event, active_keys, grabbed = True, pre_emptive = False):
         """
@@ -166,19 +179,13 @@ class EventHandlerThread(threading.Thread):
         if key_event.scancode in self.angry_keys and \
                 key_event.keystate == 1:
             logging.debug('Angry key triggered')
-            today = datetime.datetime.now()
-            today_str = today.strftime('%Y-%m-%d_%H-%M-%S')
-            with open(self.angry_key_prefix + '-' + today_str + '.txt', 'w') as f:
-                f.write('\n'.join([', '.join([str(x) for x in elem])
-                    for elem in self.history])) # TODO: nicer output, date stamp
-                # f.write(str(state_obj.history))
+            self.save_history()
 
         # Save history
         if self.history is not None:
             self.history.append(
-                    [(key_event.scancode,
-                        evdev.ecodes.KEY.get(key_event.scancode),
-                        key_event.keystate), []]
+                    [(evdev.ecodes.KEY.get(key_event.scancode),
+                        key_event.keystate), codes_to_keys(self.ui.device.active_keys()), []]
                     )
 
         if not grabbed:
@@ -352,7 +359,10 @@ class EventHandlerThread(threading.Thread):
         cur_key = key_event.scancode
         back_link = self.back_links.get(cur_key)
         if back_link is None:
-            logging.warn(f"Scancode {cur_key} went up without having gone down. Doing nothing.")
+            msg = f"{evdev.ecodes.KEY[cur_key]} went up without having gone down. Doing nothing."
+            logging.warn(msg)
+            self.history.append([msg])
+            self.save_history()
             return
         # If not resolved by now, it is a regular key
         if back_link.content.resolution_type == ResolutionType.UNRESOLVED:
@@ -505,6 +515,14 @@ class EventHandlerThread(threading.Thread):
                 if type(elem) is TerminationException:
                     logging.info("event_handler was asked to shut down")
                     break 
+                elif type(elem) is TerminationExceptionError:
+                    logging.info("event_handler was asked to shut down because of an exception.")
+                    self.save_history()
+                    break
+                elif type(elem) is HistoryException:
+                    self.history.append([str(elem)])
+                    self.save_history()
+                    continue
                 else:
                     (device, event) = elem
                 # print("Pre-lock")
