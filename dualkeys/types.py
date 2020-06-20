@@ -30,6 +30,21 @@ class TerminationExceptionError(Exception):
 class HistoryException(Exception):
     pass
 
+class KeyEvent():
+    def __init__(self, event, grab = True):
+        self.code = event.code.value
+        self.name = event.code.name
+        self.keystate = event.value
+        self.grab = grab
+        self.timestamp_sec = event.sec
+        self.timestamp_usec = event.usec
+
+    def timestamp(self):
+        return float(self.timestamp_sec) + float(self.timestamp_usec)/10**6
+
+    def __str__(self):
+        return f"({self.code}, {self.name}, {self.keystate})"
+
 class DeviceWrapper():
     def __init__(self, grab = False, input_device = None, future = None):
         self.grab = grab

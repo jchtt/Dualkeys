@@ -1,30 +1,44 @@
 import datetime
 import time
 import threading
+# import multiprocessing as mp
 import logging
 from collections import deque
 import os
+import libevdev
+import signal
 
 from .types import *
 
-def codes_to_keys(code):
-    if type(code) is int:
-        return "[" + evdev.ecodes.keys[code] + "]"
-    else:
-        return "[" + ", ".join(map(evdev.ecodes.keys.get, code)) + "]"
+def code_to_keystr(code):
+    return libevdev.evbit(1, code).name
 
-class EventHandlerThread(threading.Thread):
+def keystr_to_code(keystr):
+    return libevdev.evbit(keystr).value
+
+def codes_to_keystrs(code):
+    if type(code) is int:
+        return "[" + code_to_keystr(code) + "]"
+    else:
+        return "[" + ", ".join(map(code_to_keystr, code)) + "]"
+
+class EventHandlerWorker(threading.Thread):
     """
     Thread that handles the events in the event queue
     """
 
     def __init__(self, main_instance, *args, **kw):
-        super().__init__(*args, **kw)
+        super().__init__(*args, daemon = True, **kw)
 
         self.main_instance = main_instance
         args = main_instance.args
         self.event_queue = main_instance.event_queue
-        self.ui = evdev.UInput()
+        self.device = libevdev.Device()
+        self.device.name = "Dualkeys uinput"
+        for i in range(libevdev.EV_KEY.max):
+            self.device.enable(libevdev.evbit(1, i))
+        self.ui = self.device.create_uinput_device()
+        time.sleep(0.5)
 
         self.do_print = main_instance.args.print
         self.registered_keys = {}
@@ -66,7 +80,15 @@ class EventHandlerThread(threading.Thread):
         self.error_queue = self.main_instance.error_queue
 
     def cleanup(self):
-        self.ui.close()
+        pass
+        # self.ui.close()
+
+    def get_active_keys(self):
+        ret = []
+        for k, v in self.key_counter.items():
+            if v != 0:
+                ret.append(k)
+        return ret
 
     def print_registered_keys(self):
         print("Registered dual-role keys:")
@@ -80,6 +102,11 @@ class EventHandlerThread(threading.Thread):
             print("actual key = [{} | {}], ".format(primary_key, primary_key_code), end = "")
             print("single key = [{} | {}], ".format(single_key, single_key_code), end = "")
             print("modifier key = [{} | {}]".format(mod_key, mod_key_code))
+    
+    def send_event(self, scancode, keystate):
+        press = [libevdev.InputEvent(libevdev.evbit(1, scancode), value = keystate),
+                libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, value = 0)]
+        self.ui.send_events(press)
 
     def send_key(self, scancode, keystate, bypass = False):
         """
@@ -88,34 +115,31 @@ class EventHandlerThread(threading.Thread):
         # state_obj.ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
         # state_obj.ui.syn()
         if bypass:
-            self.ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
-            self.ui.syn()
+            self.send_event(scancode, keystate)
             return
 
         count = self.key_counter.setdefault(scancode, 0)
         if keystate == 1:
             if count == 0:
-                self.ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
-                self.ui.syn()
+                self.send_event(scancode, keystate)
                 logging.debug(f'Pushed {scancode}, {evdev.ecodes.KEY[scancode]}')
                 if self.history is not None:
                     self.history[-1][-1].append(
-                            (evdev.ecodes.KEY[scancode], keystate)
+                            (code_to_keystr(scancode), keystate)
                             )
             self.key_counter[scancode] += 1
         elif keystate == 0:
             if count == 1:
-                self.ui.write(evdev.ecodes.EV_KEY, scancode, keystate)
-                self.ui.syn()
+                self.send_event(scancode, keystate)
                 logging.debug(f'Lifted {scancode}, {evdev.ecodes.KEY[scancode]}')
                 if self.history is not None:
                     self.history[-1][-1].append(
-                            (evdev.ecodes.KEY[scancode], keystate)
+                            (code_to_keystr(scancode), keystate)
                             )
             self.key_counter[scancode] -= 1
             self.key_counter[scancode] = max(self.key_counter[scancode], 0)
 
-    def print_event(self, key_event, grabbed = True):
+    def print_event(self, key_event):
         """
         Alternative callback function that passes everything through,
         """
@@ -124,10 +148,10 @@ class EventHandlerThread(threading.Thread):
         #     key_event = evdev.util.categorize(event)
         # if key_event.keystate <= 1:
         if True:
-            print('scancode = {}, keystate = {}, keycode = {}'.format(key_event.scancode, key_event.keystate, key_event.keycode))
-        if grabbed:
-            self.send_key(key_event.scancode, key_event.keystate)
-        if key_event.scancode in self.kill_switches:
+            print(f"{key_event}")
+        if key_event.grab:
+            self.send_key(key_event.code, key_event.keystate)
+        if key_event.code in self.kill_switches:
             logging.info("Kill switch pressed, shutting down")
             self.error_queue.put(TerminationException())
         return True
@@ -150,7 +174,7 @@ class EventHandlerThread(threading.Thread):
                 for elem in self.history])) # TODO: nicer output, date stamp
             # f.write(str(state_obj.history))
 
-    def handle_event(self, key_event, active_keys, grabbed = True, pre_emptive = False):
+    def handle_event(self, key_event, pre_emptive = False):
         """
         Handle the incoming key event. Main callback function.
         """
@@ -164,19 +188,19 @@ class EventHandlerThread(threading.Thread):
             cur_time = time.time()
 
         # Don't act on weird keys
-        if key_event.scancode in self.ignore_keys:
+        if key_event.code in self.ignore_keys:
             return True
-        # if key_event.scancode == 48:
+        # if key_event.code == 48:
         #     raise KeyboardInterrupt
-        logging.debug("Received = {}, keystate = {}, key = {}, grabbed = {}.".format(key_event.scancode, key_event.keystate, evdev.ecodes.KEY.get(key_event.scancode, None), grabbed))
+        logging.debug(f"Received {key_event}, grabbed = {key_event.grab}")
 
         # Handle kill switch, shutdown
-        if key_event.scancode in self.kill_switches:
+        if key_event.code in self.kill_switches:
             self.error_queue.put(TerminationException())
             return False
 
         # Handle angry key, save the history
-        if key_event.scancode in self.angry_keys and \
+        if key_event.code in self.angry_keys and \
                 key_event.keystate == 1:
             logging.debug('Angry key triggered')
             self.save_history()
@@ -184,24 +208,24 @@ class EventHandlerThread(threading.Thread):
         # Save history
         if self.history is not None:
             self.history.append(
-                    [(evdev.ecodes.KEY.get(key_event.scancode),
-                        key_event.keystate), codes_to_keys(self.ui.device.active_keys()), []]
+                    [(code_to_keystr(key_event.code),
+                        key_event.keystate), codes_to_keystrs(self.get_active_keys()), []]
                     )
 
-        if not grabbed:
+        if not key_event.grab:
             self.handle_ungrabbed_key(key_event, pre_emptive)
         else:
             if key_event.keystate == 1:
                 # Key down
                 # logging.debug("Down.")
-                if key_event.scancode not in self.registered_keys:
+                if key_event.code not in self.registered_keys:
                     self.handle_regular_key_down(key_event, pre_emptive)
                 else:
                     self.handle_special_key_down(key_event, pre_emptive)
             # Key up
             elif key_event.keystate == 0:
                 logging.debug("Key up")
-                if key_event.scancode not in self.registered_keys:
+                if key_event.code not in self.registered_keys:
                     self.handle_regular_key_up(key_event, pre_emptive)
                 else:
                     self.handle_special_key_up(key_event, pre_emptive)
@@ -209,7 +233,7 @@ class EventHandlerThread(threading.Thread):
                 # Key repeat
                 logging.debug("Key repeat")
                 self.handle_key_repeat(key_event, pre_emptive)
-                # if key_event.scancode not in state_obj.registered_keys:
+                # if key_event.code not in state_obj.registered_keys:
                 #     handle_regular_key_repeat(state_obj, key_event, pre_emptive)
                 # else:
                 #     handle_special_key_repeat(state_obj, key_event, pre_emptive)
@@ -232,7 +256,7 @@ class EventHandlerThread(threading.Thread):
         # If we get a mouse button, immediately resolve everything
 
         logging.debug("Event from ungrabbed device, resolving event_list.")
-        scancode = key_event.scancode
+        scancode = key_event.code
         # resolve_previous_to_modifiers(self, key_event, pre_emptive) 
         self.resolve(key_event, pre_emptive, to_node = None)
         # send_key(self, scancode, key_event.keystate)
@@ -242,16 +266,17 @@ class EventHandlerThread(threading.Thread):
         # Regular key goes down: either there is no list, then send;
         # otherwise, put it in the queue and resolve non-tf keys
 
-        to_push = key_event.scancode
+        to_push = key_event.code
         self.last_pressed_key = to_push
         # TODO: figure out why I handled pre_emptive separately here
         if not self.event_list.isempty(): #or to_push in self.pre_emptive_mods:
             # Regular key, but not sure what to do, so put it in the list
+
             key_obj = UnresolvedKey(scancode = to_push,
-                    time_pressed = key_event.event.timestamp(),
+                    time_pressed = key_event.timestamp(),
                     keystate = 1, resolution_type = ResolutionType.REGULAR)
             node = self.event_list.append(key_obj)
-            self.back_links[key_event.scancode] = node
+            self.back_links[key_event.code] = node
             if pre_emptive and to_push in self.pre_emptive_mods:
                 # TODO: might change order here to not push it when it will be resolved
                 # afterwards
@@ -262,26 +287,26 @@ class EventHandlerThread(threading.Thread):
 
             self.resolve(key_event, pre_emptive, to_node = node, from_down = True)
 
-            logging.debug("Regular key, append to list: {}".format(codes_to_keys(key_event.scancode)))
+            logging.debug("Regular key, append to list: {}".format(codes_to_keystrs(key_event.code)))
             logging.debug("Event list: {}".format(self.event_list))
         else:
             # Regular key, no list? Send!
             if key_event.keystate == 1:
-                self.send_key(key_event.scancode, key_event.keystate)
-                # self.resolution_dict[key_event.scancode] = ResolutionType.REGULAR
-            logging.debug("Regular key, push {}".format(key_event.scancode))
+                self.send_key(key_event.code, key_event.keystate)
+                # self.resolution_dict[key_event.code] = ResolutionType.REGULAR
+            logging.debug("Regular key, push {}".format(key_event.code))
 
-        self.last_pressed[key_event.scancode] = time.time()
+        self.last_pressed[key_event.code] = time.time()
 
     def handle_special_key_down(self, key_event, pre_emptive):
         # Special key, on a push we never know what to do, so put it in the list
 
         # logging.debug("Registered key pressed")
 
-        cur_key = key_event.scancode
+        cur_key = key_event.code
         to_push = self.registered_keys[cur_key].mod_key
         key_obj = UnresolvedKey(scancode = cur_key,
-                time_pressed = key_event.event.timestamp(),
+                time_pressed = key_event.timestamp(),
                 keystate = 1, resolution_type = ResolutionType.UNRESOLVED)
 
         if self.handle_repeat \
@@ -310,11 +335,11 @@ class EventHandlerThread(threading.Thread):
             key_obj.mod_key = to_push
             node = self.event_list.append(key_obj)
             self.send_key(to_push, key_event.keystate)
-            logging.debug("Because pre_emptive, push {}, append {}".format(codes_to_keys(to_push), codes_to_keys(key_event.scancode)))
+            logging.debug("Because pre_emptive, push {}, append {}".format(code_to_keystr(to_push), codes_to_keystrs(key_event.code)))
         else:
             # TODO: mod_down should be False here?
             node = self.event_list.append(key_obj)
-            logging.debug("Not pre_emptive, append {}".format(codes_to_keys(key_event.scancode)))
+            logging.debug("Not pre_emptive, append {}".format(codes_to_keystrs(key_event.code)))
 
         self.back_links[cur_key] = node
         self.resolve(key_event, pre_emptive, node, from_down = True)
@@ -328,18 +353,18 @@ class EventHandlerThread(threading.Thread):
 
         logging.debug("Regular key")
 
-        cur_key = key_event.scancode
+        cur_key = key_event.code
 
         if self.event_list.isempty():
             # Nothing backed up, just send.
             self.send_key(cur_key, key_event.keystate)
-            logging.debug("No list, lift {}".format(codes_to_keys(cur_key)))
+            logging.debug("No list, lift {}".format(codes_to_keystrs(cur_key)))
         else:
             key_obj = UnresolvedKey(scancode = cur_key,
-                    time_pressed = key_event.event.timestamp(),
+                    time_pressed = key_event.timestamp(),
                     keystate = 0, resolution_type = ResolutionType.REGULAR)
             node = self.event_list.append(key_obj)
-            logging.debug("Key in list, resolve {}".format(codes_to_keys(cur_key)))
+            logging.debug("Key in list, resolve {}".format(codes_to_keystrs(cur_key)))
 
             if pre_emptive and cur_key in self.pre_emptive_mods:
                 self.send_key(cur_key, 0)
@@ -347,16 +372,16 @@ class EventHandlerThread(threading.Thread):
                 logging.debug(f'Lifted {cur_key} because pre_emptive')
 
             # Resolve
-            back_link = self.back_links.get(key_event.scancode)
+            back_link = self.back_links.get(key_event.code)
             if back_link is not None:
                 self.resolve(key_event, pre_emptive, back_link, from_down = False)
-                del self.back_links[key_event.scancode] 
+                del self.back_links[key_event.code] 
 
     def handle_special_key_up(self, key_event, pre_emptive):
         # Special key goes up
         # logging.debug("Special key goes up")
 
-        cur_key = key_event.scancode
+        cur_key = key_event.code
         back_link = self.back_links.get(cur_key)
         if back_link is None:
             msg = f"{evdev.ecodes.KEY[cur_key]} went up without having gone down. Doing nothing."
@@ -372,7 +397,7 @@ class EventHandlerThread(threading.Thread):
                 self.send_key(self.registered_keys[cur_key].mod_key, 0)
                 back_link.content.pre_emptive_pressed = False
             logging.debug(f'Key {cur_key} was not resolved, so resolve to regular key.')
-        key_obj = UnresolvedKey(scancode = cur_key, time_pressed = key_event.event.timestamp(),
+        key_obj = UnresolvedKey(scancode = cur_key, time_pressed = key_event.timestamp(),
                 keystate = 0, resolution_type = back_link.content.resolution_type)
         # if self.event_list.isempty():
         #     single_key = self.registered_keys[cur_key].single_key
@@ -389,7 +414,7 @@ class EventHandlerThread(threading.Thread):
     def handle_key_repeat(self, key_event, pre_emptive):
         # Any key sends repeat
 
-        cur_key = key_event.scancode
+        cur_key = key_event.code
 
         back_link = self.back_links.get(cur_key)
         if back_link is not None \
@@ -417,7 +442,7 @@ class EventHandlerThread(threading.Thread):
                 if node.content.scancode in self.registered_keys:
                     to_lift = self.registered_keys[node.content.scancode].mod_key
                     self.send_key(to_lift, self.__class__.invert_keystate(node.content.keystate))
-                    logging.debug("{}, ".format(codes_to_keys(to_lift)))
+                    logging.debug("{}, ".format(codes_to_keystrs(to_lift)))
                 elif node.content.scancode in self.pre_emptive_mods:
                     self.send_key(node.content.scancode, self.__class__.invert_keystate(node.content.keystate))
                     logging.debug("{}, ".format(node.content.scancode))
@@ -503,6 +528,7 @@ class EventHandlerThread(threading.Thread):
         """
         Worker function for event-consumer to handle events.
         """
+        # signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         try:
             # TODO: Timing should probably not be done in the handler, but in the pusher...
@@ -524,30 +550,29 @@ class EventHandlerThread(threading.Thread):
                     self.save_history()
                     continue
                 else:
-                    (device, event) = elem
+                    (device_node, event) = elem
                 # print("Pre-lock")
                 # device_lock.acquire()
                     # if event.type == evdev.ecodes.EV_KEY:
 
-                logging.debug("")
-                logging.debug("Active keys: {}".format(codes_to_keys(self.ui.device.active_keys())))
-                logging.debug("")
+                # logging.debug("")
+                # logging.debug("Active keys: {}".format(codes_to_keystrs(self.ui.device.active_keys())))
+                # logging.debug("")
 
                 try:
                     if self.do_print:
-                        ret = self.print_event(event,
-                                self.main_instance.event_pusher.listen_devices[device.path].grab)
+                        ret = self.print_event(event)
                     else:
-                        ret = self.handle_event(event, device.active_keys(),
-                                pre_emptive = self.do_pre_emptive,
-                                grabbed = self.main_instance.event_pusher.listen_devices[device.path].grab)
+                        ret = self.handle_event(event,
+                                pre_emptive = self.do_pre_emptive)
                 except IOError as e:
                     # Check if the device got removed, if so, get rid of it
                     if e.errno != errno.ENODEV: raise
-                    logging.debug("Device {0.fn} removed.".format(device))
-                    self.main_instance.event_pusher.remove_device(device)
+                    logging.debug(f"Device {device_node} removed in event handler.")
+                    # self.main_instance.connector_thread.remove_device(device_node)
                 finally:
-                    self.main_instance.event_queue.task_done()
+                    pass
+                    # self.main_instance.event_queue.task_done()
                     # device_lock.release()
                     # print("Past lock")
         except Exception as e:

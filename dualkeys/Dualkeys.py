@@ -21,13 +21,16 @@ import configargparse as argparse
 # import argparse
 from ast import literal_eval
 import evdev
+import libevdev
 import queue
 import logging
+# import threading
+import multiprocessing as mp
 
 from .types import *
-from .event_pusher import EventPusherThread
-from .event_handler import EventHandlerThread
-from .observer import ObserverThreadWrapper
+# from .event_pusher_libevdev import EventPusherWorker
+from .event_handler import EventHandlerWorker
+from .observer_libevdev import ObserverThreadWrapper
 
 # logger = logging.getLogger(__name__)
 # logging.setLevel(logging.DEBUG)
@@ -39,11 +42,30 @@ from .observer import ObserverThreadWrapper
 # datefmt="%H:%M:%S",
 
 def parse_multi_key(s):
-    t = tuple(map(int, s.split(",")))
-    if len(t) != 3:
-        raise argparse.ArgumentTypeException(
-            "Dualkeys must consist of three keycodes, like (59, 59, 27)")
-    return t
+    arglist = s.split(",")
+    if len(arglist) not in [3, 4]:
+        raise argparse.ArgumentTypeError(
+            "Dualkeys must consist of three keycodes, like (59, 59, 27),"
+            "with an optional bool if it should be triggered on a down press, "
+            "like (59, 59, 27, True)")
+    t = list(map(parse_single_key, arglist[:3]))
+    if len(arglist) == 4:
+        down_press = bool(arglist[3])
+        t += [down_press] 
+    return tuple(t)
+
+def parse_single_key(k):
+    k = k.strip().upper()
+    if not k.startswith("KEY_") and not k.startswith("BTN_"):
+        k = "KEY_" + k
+    event = libevdev.evbit(k)
+    if event is None:
+        raise argparse.ArgumentTypeError(
+                f"{k} is not a valid key identifier, you might want to try Dualkeys.py -p "
+                "to obtain valid identifiers."
+                )
+    return event.value
+
 
 # Main program
 class Main():
@@ -57,12 +79,12 @@ class Main():
 
         self.raw_arguments = raw_arguments
         self.shutdown_flag = threading.Event() if shutdown_flag is None else shutdown_flag
-        self.error_queue = queue.Queue() if error_queue is None else error_queue
+        self.error_queue = mp.Queue() if error_queue is None else error_queue
         self.notify_condition = notify_condition
         self.listen_device = listen_device
         self.test_comm = test_comm
 
-        self.event_queue = queue.Queue()
+        self.event_queue = mp.Queue()
 
     def list_devices(self):
         """
@@ -70,8 +92,10 @@ class Main():
         """
 
         print('Listing devices:')
-        for device in self.all_devices:
-            print("filename = {}, name = {}, physical address = {}".format(device.path, device.name, device.phys))
+        for fn in self.all_devices:
+            with open(fn, "rb") as f:
+                device = libevdev.Device(f)
+                print("filename = {}, name = {}, physical address = {}".format(fn, device.name, device.phys))
         return
 
     # # TODO: Figure this out
@@ -105,7 +129,6 @@ class Main():
         print("-"*20)
         print("Cleaning up... ", end="")
 
-        self.event_pusher.cleanup()
         self.event_handler.cleanup()
 
         print("Done.")
@@ -140,29 +163,29 @@ class Main():
                 help = "Print debug information")
         parser.add_argument('-t', '--timing', action='store_true',
                 help = "Print timing results")
-        parser.add_argument('-pem', '--pre-emptive-mods', nargs='*', type=int,
+        parser.add_argument('-pem', '--pre-emptive-mods', nargs='*', type=parse_single_key,
                 default = [],
                 help = ("Scancodes of modifier keys to be taken into account"
                     "in pre-emptive mode"))
-        parser.add_argument('-ks', '--kill-switch', nargs='*', type=int, default = [119],
+        parser.add_argument('-ks', '--kill-switch', nargs='*', type=parse_single_key, default = [119],
                 help = "Scancodes of keys to immediately kill Dualkeys")
-        parser.add_argument('-ak', '--angry-keys', nargs='*', type=int, default = [],
+        parser.add_argument('-ak', '--angry-keys', nargs='*', type=parse_single_key, default = [],
                 help = "Scancodes of keys that will save the last few input and output strokes, see --angry-key-history")
         parser.add_argument('-akh', '--angry-key-history', type=int, default = 1000,
                 help = "Length of angry key history")
-        parser.add_argument('-akp', '--angry-key-prefix', nargs = '?', type=str, default = "./log",
-                help = "Prefix for key history")
+        # parser.add_argument('-akp', '--angry-key-prefix', nargs = '?', type=str, default = "./log",
+        #         help = "Prefix for key history")
         parser.add_argument('-akd', '--angry-key-directory', nargs = '?', type=str, default = "./log/",
                 help = "Prefix for key history")
-        parser.add_argument('-i', '--ignore', nargs = '*', type=int, default = [],
-                help = "Scancodes to ignore")
+        parser.add_argument('-i', '--ignore', nargs = '*', type=parse_single_key, default = [],
+                help = "Keys to ignore")
         parser.add_argument('-rt', '--repeat-timeout', type = int,
                 help = "Time frame during which a double press of a modifier key is interpreted as initiating key repeat.")
-        parser.add_argument('-rk', '--repeat-keys', nargs = '*', type = int,
+        parser.add_argument('-rk', '--repeat-keys', nargs = '*', type = parse_single_key,
                 help = "Keys to resolve to single keys if pressed again less than repeat-timeout after the last release.")
         parser.add_argument('-it', '--idle-timeout', type = int,
                 help = "Timeout to resolve repeat-keys as modifiers")
-        parser.add_argument('-ik', '--idle-keys', nargs = '*', type = int,
+        parser.add_argument('-ik', '--idle-keys', nargs = '*', type = parse_single_key,
                 help = "Keys to resolve to modifiers after a repeat-timeout milliseconds.")
         parser.add_argument('--clear-timeout-down', type = int,
                 default = 500,
@@ -203,23 +226,20 @@ class Main():
         )
 
 
-        self.all_devices = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
+        self.all_devices = [fn for fn in evdev.list_devices()]
         if self.args.list:
             self.list_devices()
 
-        self.event_handler = EventHandlerThread(self, name = "event_handler")
+        self.event_handler = EventHandlerWorker(self, name = "event_handler")
         self.event_handler.start()
         logging.debug("event_handler started")
 
-        self.event_pusher = EventPusherThread(main_instance = self, name = "event_pusher",
-                shutdown_flag = self.shutdown_flag)
-        self.event_pusher.start()
-        logging.debug("event_pusher started")
-        
         self.connector_thread = ObserverThreadWrapper(main_instance = self)
         self.connector_thread.start()
         logging.debug("connector started")
 
+        for fn in self.all_devices:
+            self.connector_thread.add_device(fn)
 
         # Try-finally clause to catch in particular Ctrl-C and do cleanup
         try:
@@ -233,8 +253,8 @@ class Main():
             e = self.error_queue.get()
             # print("Raising exception")
             # raise e
-            print("Exception raised")
-            self.error_queue.task_done()
+            logging.warn("Exception raised")
+            # self.error_queue.task_done()
             # raise e
                 
         except KeyboardInterrupt as e:
@@ -247,12 +267,10 @@ class Main():
             logging.info("Shutting down...")
             self.shutdown_flag.set()
             self.event_queue.put(TerminationException())
-            self.event_pusher.join()
-            logging.debug("event_pusher joined")
-            self.event_handler.join()
-            logging.debug("event_handler joined")
             self.connector_thread.stop()
             logging.debug("connector_thread stopped")
+            self.event_handler.join(timeout = 2)
+            logging.debug("event_handler joined")
             self.cleanup()
 
 if __name__ == "__main__":
