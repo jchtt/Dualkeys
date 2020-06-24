@@ -96,6 +96,14 @@ class DualKey:
         self.mod_key = mod_key
         self.down_trigger = down_trigger
 
+class SwapKey:
+    def __init__(self, from_key, to_key):
+        self.from_key = from_key
+        self.to_key = to_key
+
+    def __repr__(self):
+        return (f"SwapKey({self.from_key}, {self.to_key})")
+
 class UnresolvedKey:
     """
     Object to store the response to a key.

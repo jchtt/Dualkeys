@@ -45,13 +45,22 @@ def parse_multi_key(s):
     arglist = s.split(",")
     if len(arglist) not in [3, 4]:
         raise argparse.ArgumentTypeError(
-            "Dualkeys must consist of three keycodes, like (59, 59, 27),"
+            "Dualkeys must consist of three key symbols, like (space, space, leftcontrol),"
             "with an optional bool if it should be triggered on a down press, "
-            "like (59, 59, 27, True)")
+            "like (space, space, leftcontrol, True)")
     t = list(map(parse_single_key, arglist[:3]))
     if len(arglist) == 4:
         down_press = bool(arglist[3])
         t += [down_press] 
+    return tuple(t)
+
+def parse_swap_key(s):
+    arglist = s.split(",")
+    if len(arglist) != 2:
+        raise argparse.ArgumentTypeError(
+            "Dualkeys must consist of two keycodes, like (a, b)."
+            )
+    t = list(map(parse_single_key, arglist))
     return tuple(t)
 
 def parse_single_key(k):
@@ -149,11 +158,18 @@ class Main():
         #         help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
         #         "actual key on the keyboard, the single press key, and the modifier key"),
         #         metavar = ('actual_key', 'single_key', 'mod_key'))
-        group.add_argument('-k', '--key', type=parse_multi_key, action='append',
+        repl_group = group.add_argument_group()
+        repl_group.add_argument('-k', '--key', type=parse_multi_key, action='append',
                 help = ("Scancodes for dual role key. Expects three arguments, corresponding to the"
                 "actual key on the keyboard, the single press key, and the modifier key"),
                 # )
                 metavar = '(actual_key,single_key,mod_key)')
+        repl_group.add_argument('-sk', '--swap-key', type=parse_swap_key, action='append',
+                help = ("Scancodes for keys to swap. Will only affect key without dual role."
+                "Expects two arguments, corresponding to the"
+                "actual key on the keyboard and the key it maps to."),
+                # )
+                metavar = '(from_key,to_key)')
 
         group.add_argument('-p', '--print', action='store_true',
                 help = "Disable dual-role keys, just print back scancodes")

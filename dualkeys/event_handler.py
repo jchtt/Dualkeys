@@ -41,7 +41,6 @@ class EventHandlerWorker(threading.Thread):
         time.sleep(0.5)
 
         self.do_print = main_instance.args.print
-        self.registered_keys = {}
         self.pre_emptive_mods = set(args.pre_emptive_mods)
         self.do_pre_emptive = len(self.pre_emptive_mods) > 0
         self.kill_switches = args.kill_switch
@@ -62,10 +61,17 @@ class EventHandlerWorker(threading.Thread):
             self.history = None
 
         # Define registered keys
+        self.registered_keys = {}
         if args.key is not None:
             for keys in args.key:
                 self.registered_keys[keys[0]] = DualKey(*keys)
         self.print_registered_keys()
+
+        self.swap_keys = {}
+        if args.swap_key is not None:
+            for keys in args.swap_key:
+                self.swap_keys[keys[0]] = SwapKey(*keys)
+        print(self.swap_keys)
 
         # Main status indicator
         self.event_list = DLList()
@@ -107,6 +113,13 @@ class EventHandlerWorker(threading.Thread):
         press = [libevdev.InputEvent(libevdev.evbit(1, scancode), value = keystate),
                 libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, value = 0)]
         self.ui.send_events(press)
+
+    def swap_key(self, scancode):
+        sk = self.swap_keys.get(scancode, None)
+        if sk is not None:
+            return sk.to_key
+        else:
+            return scancode
 
     def send_key(self, scancode, keystate, bypass = False):
         """
@@ -266,7 +279,9 @@ class EventHandlerWorker(threading.Thread):
         # Regular key goes down: either there is no list, then send;
         # otherwise, put it in the queue and resolve non-tf keys
 
-        to_push = key_event.code
+        to_push = self.swap_key(key_event.code)
+        key_event.code = to_push
+
         self.last_pressed_key = to_push
         # TODO: figure out why I handled pre_emptive separately here
         if not self.event_list.isempty(): #or to_push in self.pre_emptive_mods:
@@ -276,7 +291,7 @@ class EventHandlerWorker(threading.Thread):
                     time_pressed = key_event.timestamp(),
                     keystate = 1, resolution_type = ResolutionType.REGULAR)
             node = self.event_list.append(key_obj)
-            self.back_links[key_event.code] = node
+            self.back_links[to_push] = node
             if pre_emptive and to_push in self.pre_emptive_mods:
                 # TODO: might change order here to not push it when it will be resolved
                 # afterwards
@@ -353,7 +368,8 @@ class EventHandlerWorker(threading.Thread):
 
         logging.debug("Regular key")
 
-        cur_key = key_event.code
+        cur_key = self.swap_key(key_event.code)
+        key_event.code = cur_key
 
         if self.event_list.isempty():
             # Nothing backed up, just send.
