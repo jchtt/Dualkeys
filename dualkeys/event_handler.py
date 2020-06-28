@@ -41,7 +41,7 @@ class EventHandlerWorker(threading.Thread):
         time.sleep(0.5)
 
         self.do_print = main_instance.args.print
-        print(args.pre_emptive_mods)
+        # print(args.pre_emptive_mods)
         self.pre_emptive_mods = set(args.pre_emptive_mods)
         self.do_pre_emptive = len(self.pre_emptive_mods) > 0
         self.kill_switches = args.kill_switch
@@ -298,6 +298,7 @@ class EventHandlerWorker(threading.Thread):
             if pre_emptive and to_push in self.pre_emptive_mods:
                 # TODO: might change order here to not push it when it will be resolved
                 # afterwards
+                # print(f"Pre emptive mods = {self.pre_emptive_mods}")
                 key_obj.pre_emptive_pressed = True
                 key_obj.mod_key = to_push
                 self.send_key(to_push, key_event.keystate)
@@ -348,7 +349,7 @@ class EventHandlerWorker(threading.Thread):
                 self.last_pressed_key = cur_key
                 return
 
-        if pre_emptive:
+        if pre_emptive and to_push in self.pre_emptive_mods:
             key_obj.pre_emptive_pressed = True
             key_obj.mod_key = to_push
             node = self.event_list.append(key_obj)

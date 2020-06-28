@@ -20,7 +20,7 @@ key: [
     # "100, 28, 100", # ralt -> ralt/enter
     # "56, 15, 100", # lalt -> ralt/tab
     "space, space, leftctrl", # space -> lctrl
-    # "leftalt, tab, leftalt",
+    "leftalt, tab, leftalt",
     # "33, 33, 70", # f -> sclk (mod5)
     # "36, 36, 70", # j -> sclk (mod5)
     "f, f, scrolllock", # f -> sclk (mod5)
@@ -32,7 +32,7 @@ key: [
     ]
 # pre-emptive-mods: [LEFTSHIFT, RIGHTSHIFT, LEFTALT, RIGHTALT] # lshift, rshift, lalt, ralt
 # pre-emptive-mods: [leftshift, rightshift, leftctrl, rightctrl] # lshift, rshift, lalt, ralt
-pre-emptive-mods: [leftshift] # lshift, rshift, lalt, ralt
+pre-emptive-mods: [leftalt, leftshift] # lshift, rshift, lalt, ralt
 ignore: [btn_tool_finger, btn_touch]
 repeat-timeout: 200
 repeat-keys: [f, j, space]
