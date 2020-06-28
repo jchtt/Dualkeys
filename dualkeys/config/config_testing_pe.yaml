@@ -1,0 +1,27 @@
+kill-switch: 119
+key: [
+    # "(57, 57, 86)", # Map space to (non-existent) <>| key
+    # "(57, 57, 29)",
+    # "(33, 33, 42)",
+    # "(34, 34, 29)",
+    # "(35, 35, 29)",
+    # "(36, 36, 42)",
+
+    # "(33, 33, 29)", # f to lctrl
+    # "(36, 36, 29)", # j to lctrl
+
+    # "(32, 32, 29)",
+    # "(37, 37, 29)",
+    "57, 57, 29", # Space to ltrl
+    "33, 33, 42", # f to lshift
+    "36, 36, 54", # j to rshift
+    "5, 5, 56", # 4 to lalt
+    "10, 10, 100", # 9 to ralt
+    "100, 28, 100", # ralt to enter
+    ]
+pre-emptive-mods: [42, 54, 56, 100, 29, 97] # lshift, rshift, lalt, ralt, lctrl, rctrl
+repeat-timeout: 200
+repeat-keys: [33, 36, 57, 5, 10, 100]
+idle-timeout: 800
+idle-keys: [33, 36, 57, 5, 10, 100]
+# debug: True

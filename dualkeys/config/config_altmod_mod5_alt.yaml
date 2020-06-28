@@ -1,0 +1,32 @@
+kill-switch: 119
+angry-keys: 99
+# key: 57, 57, 86
+# key: [
+#     "(57, 57, 86)", # Map space to (non-existent) <>| key
+#     # "(57, 57, 29)",
+#     # "(33, 33, 42)",
+#     # "(34, 34, 29)",
+#     # "(35, 35, 29)",
+#     # "(36, 36, 42)",
+
+#     "(33, 33, 29)", # f to lctrl
+#     "(36, 36, 29)", # j to lctrl
+
+#     # "(32, 32, 29)",
+#     # "(37, 37, 29)",
+#     ]
+key: [
+    "100, 28, 100", # ralt -> ralt/enter
+    "56, 15, 100", # lalt -> ralt/tab
+    "57, 57, 29", # space -> lctrl
+    # "33, 33, 58", # f -> caps
+    # "36, 36, 58", # j -> caps, important not to map to left because of lock
+    # "5, 5, 56", # 4 -> lalt
+    # "10, 10, 56", # 9 -> lalt
+    ]
+pre-emptive-mods: [42, 54, 56, 100] # lshift, rshift, lalt, ralt
+ignore: [325, 330]
+repeat-timeout: 200
+repeat-keys: [32, 33, 36, 37, 57, 5, 10, 100]
+idle-timeout: 800
+idle-keys: [32, 33, 36, 37, 57, 5, 10, 100]
