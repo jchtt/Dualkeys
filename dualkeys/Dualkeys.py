@@ -19,7 +19,7 @@
 
 import configargparse as argparse
 # import argparse
-from ast import literal_eval
+# from ast import literal_eval
 import evdev
 import libevdev
 import queue
@@ -189,6 +189,9 @@ class Main():
                 help = "Scancodes of keys that will save the last few input and output strokes, see --angry-key-history")
         parser.add_argument('-akh', '--angry-key-history', type=int, default = 1000,
                 help = "Length of angry key history")
+        parser.add_argument('-sh', '--save-history', type=bool, default = False,
+                help = "Keep history (automatically assumed true if angry key"
+                " is set")
         # parser.add_argument('-akp', '--angry-key-prefix', nargs = '?', type=str, default = "./log",
         #         help = "Prefix for key history")
         parser.add_argument('-akd', '--angry-key-directory', nargs = '?', type=str, default = "./log/",
@@ -289,6 +292,9 @@ class Main():
             logging.debug("event_handler joined")
             self.cleanup()
 
-if __name__ == "__main__":
+def run():
     main_instance = Main()
     main_instance.main()
+
+if __name__ == "__main__":
+    run()

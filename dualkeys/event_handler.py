@@ -55,7 +55,7 @@ class EventHandlerWorker(threading.Thread):
         self.angry_key_directory = args.angry_key_directory
         self.ignore_keys = args.ignore
 
-        if len(self.angry_keys) > 0:
+        if len(self.angry_keys) > 0 or args.save_history:
             self.history = deque(maxlen = args.angry_key_history)
         else:
             self.history = None
@@ -176,16 +176,17 @@ class EventHandlerWorker(threading.Thread):
     ## New
 
     def save_history(self):
-        logging.info("Saving history")
-        today = datetime.datetime.now()
-        today_str_date = today.strftime('%Y-%m-%d')
-        today_str_time = today.strftime('%H-%M-%S')
-        savedir = os.path.join(self.angry_key_directory, today_str_date)
-        os.makedirs(savedir, exist_ok = True)
-        with open(os.path.join(savedir, today_str_time + '.txt'), 'w') as f:
-            f.write('\n'.join([', '.join([str(x) for x in elem])
-                for elem in self.history])) # TODO: nicer output, date stamp
-            # f.write(str(state_obj.history))
+        if self.history is not None:
+            logging.info("Saving history")
+            today = datetime.datetime.now()
+            today_str_date = today.strftime('%Y-%m-%d')
+            today_str_time = today.strftime('%H-%M-%S')
+            savedir = os.path.join(self.angry_key_directory, today_str_date)
+            os.makedirs(savedir, exist_ok = True)
+            with open(os.path.join(savedir, today_str_time + '.txt'), 'w') as f:
+                f.write('\n'.join([', '.join([str(x) for x in elem])
+                    for elem in self.history])) # TODO: nicer output, date stamp
+                # f.write(str(state_obj.history))
 
     def handle_event(self, key_event, pre_emptive = False):
         """
@@ -209,6 +210,7 @@ class EventHandlerWorker(threading.Thread):
 
         # Handle kill switch, shutdown
         if key_event.code in self.kill_switches:
+            self.save_history()
             self.error_queue.put(TerminationException())
             return False
 
