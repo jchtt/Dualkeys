@@ -40,5 +40,6 @@ setup(
         "evdev",
         "configargparse",
         "pyudev",
+        "yaml"
     ],
 )
