@@ -521,6 +521,9 @@ class EventHandlerWorker(threading.Thread):
                                 node.content.keystate)
                     elif node.content.resolution_type == ResolutionType.DUAL_MOD:
                         # if not pre_emptive or not like_pre_emptive:
+                        if pre_emptive and like_pre_emptive and (not node.content.pre_emptive_pressed):
+                            like_pre_emptive = False
+                            self.lift_following_modifiers(pre_emptive, node.next)
                         if not node.content.pre_emptive_pressed or not like_pre_emptive:
                             self.send_key(self.registered_keys[node.content.scancode].mod_key,
                                 node.content.keystate)
