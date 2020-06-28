@@ -39,5 +39,6 @@ setup(
         "libevdev",
         "evdev",
         "configargparse",
+        "pyudev",
     ],
 )
