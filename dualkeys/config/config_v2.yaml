@@ -31,8 +31,9 @@ key: [
     # "10, 10, 56", # 9 -> lalt
     ]
 # pre-emptive-mods: [LEFTSHIFT, RIGHTSHIFT, LEFTALT, RIGHTALT] # lshift, rshift, lalt, ralt
-# pre-emptive-mods: [leftshift, rightshift, leftctrl, rightctrl] # lshift, rshift, lalt, ralt
-pre-emptive-mods: [leftalt, leftshift] # lshift, rshift, lalt, ralt
+pre-emptive-mods: [leftshift, rightshift, leftctrl, rightctrl] # lshift, rshift, lalt, ralt
+# pre-emptive-mods: [leftalt, leftshift] # lshift, rshift, lalt, ralt
+# pre-emptive-mods: [leftshift, leftalt]
 ignore: [btn_tool_finger, btn_touch]
 repeat-timeout: 200
 repeat-keys: [f, j, space]

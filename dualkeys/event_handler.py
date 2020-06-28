@@ -520,7 +520,8 @@ class EventHandlerWorker(threading.Thread):
                         self.send_key(self.registered_keys[node.content.scancode].single_key,
                                 node.content.keystate)
                     elif node.content.resolution_type == ResolutionType.DUAL_MOD:
-                        if not pre_emptive or not like_pre_emptive:
+                        # if not pre_emptive or not like_pre_emptive:
+                        if not node.content.pre_emptive_pressed or not like_pre_emptive:
                             self.send_key(self.registered_keys[node.content.scancode].mod_key,
                                 node.content.keystate)
                     self.event_list.remove(node)
