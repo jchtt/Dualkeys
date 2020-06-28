@@ -41,6 +41,7 @@ class EventHandlerWorker(threading.Thread):
         time.sleep(0.5)
 
         self.do_print = main_instance.args.print
+        print(args.pre_emptive_mods)
         self.pre_emptive_mods = set(args.pre_emptive_mods)
         self.do_pre_emptive = len(self.pre_emptive_mods) > 0
         self.kill_switches = args.kill_switch
